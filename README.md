@@ -1,7 +1,7 @@
 # BHViT
 This code is an implementation of our work "BHViT: Binarized Hybrid Vision Transformer."
 
-[Reference]: Tian Gao, Zhiyuan Zhang, Yu Zhang, Huajun Liu, Kaijie Yin, Chengzhong Xu, and Hui Kong, BHViT: Binarized Hybrid Vision Transformer, IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2025
+[Reference]: Tian Gao, Zhiyuan Zhang, Yu Zhang, Huajun Liu, Kaijie Yin, Chengzhong Xu, and Hui Kong, [BHViT: Binarized Hybrid Vision Transformer](https://arxiv.org/abs/2503.02394), IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2025
 
 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------
