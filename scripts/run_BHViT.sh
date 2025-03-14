@@ -22,7 +22,7 @@ torchrun --nproc_per_node=2 --master_port=25641   main.py \
     --teacher-model=configs/deit-small-patch16-224 \
     --teacher-model-file= \
     --model=configs/BHVIT \
-    --model-type=cnn \
+    --model-type=BHVIT \
     --replace-ln-bn \
     --weight-bits=1 \
     --input-bits=1 \
