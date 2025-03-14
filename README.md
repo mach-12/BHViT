@@ -29,10 +29,10 @@ Required python packages：
 ### Citation
 If you find this work useful, please consider citing:
     @inproceedings{gao2025bhvit,
-          title={BHViT: Binarized Hybrid Vision Transformer}, 
-          author={Tian Gao and Zhiyuan Zhang and Yu Zhang and Huajun Liu and Kaijie Yin and Chengzhong Xu and Hui Kong},
-          booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
-          year={2025},
+      title={BHViT: Binarized Hybrid Vision Transformer}, 
+      author={Tian Gao and Zhiyuan Zhang and Yu Zhang and Huajun Liu and Kaijie Yin and Chengzhong Xu and Hui Kong},
+      booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
+      year={2025},
           }
 ### License
 Our code is released under the MIT License (see LICENSE file for details).
