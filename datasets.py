@@ -12,9 +12,12 @@ from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from timm.data import create_transform
 
 
-from PIL import Image
+from PIL import Image, ImageFile
 from torchvision import transforms
 from torchvision.datasets import ImageFolder
+
+# TODO: Fix data corruption in the dataset instead of this hack
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 class CervicalCancerDataset(ImageFolder):
