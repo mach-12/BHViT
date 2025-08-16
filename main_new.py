@@ -20,7 +20,7 @@ from samplers import RASampler
 from models import SyncBatchNormT, get_model
 import utils
 from losses import DistributionLoss
-from plot import TrainingPlots
+from plot import TrainingPlots, ViTAttentionPlots
 
 
 def get_args_parser():
@@ -414,6 +414,26 @@ def get_args_parser():
     parser.add_argument(
         "--dist_url", default="env://", help="url used to set up distributed training"
     )
+
+    # interpretability via attention rollouts
+    parser.add_argument(
+        "--viz-attn",
+        action="store_true",
+        help="Save ViT attention & rollout visualizations on val images",
+    )
+    parser.add_argument(
+        "--viz-samples",
+        type=int,
+        default=8,
+        help="How many validation images to visualize",
+    )
+    parser.add_argument(
+        "--viz-every",
+        type=int,
+        default=0,
+        help="If >0, also visualize every N epochs (in addition to final epoch)",
+    )
+
     return parser
 
 
@@ -547,6 +567,12 @@ def main(args):
     if args.output_dir and utils.is_main_process():
         plotter = TrainingPlots(output_dir)
 
+    attn_viz = None
+    if args.output_dir and utils.is_main_process():
+        attn_viz = ViTAttentionPlots(
+            output_dir, mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]
+        )
+
     max_accuracy = 0.0
     if args.current_best_model:
         best_model = torch.load(args.current_best_model, map_location="cpu")
@@ -571,6 +597,9 @@ def main(args):
 
             if plotter is not None:
                 plotter.update_epoch(train_stats, test_stats, epoch)
+
+            # if attn_viz is not None and args.viz_attn and args.viz_every > 0 and (epoch + 1) % args.viz_every == 0:
+            #     attn_viz.visualize_from_loader(model, data_loader_val, device, max_images=args.viz_samples)
 
     teacher_model = None
     # regnety_160,deit_small_patch16_224
@@ -722,6 +751,11 @@ def main(args):
             model, data_loader_val, device, normalize="true"
         )
         plotter.save_summary(max_accuracy=max_accuracy, total_epochs=args.epochs)
+
+        # Final interpretability set on validation images
+        if attn_viz is not None and args.viz_attn:
+            attn_viz.visualize_from_loader(model, data_loader_val, device, max_images=args.viz_samples)
+
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
