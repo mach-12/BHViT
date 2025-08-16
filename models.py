@@ -5,11 +5,10 @@ import torch.nn as nn
 from torch.nn.modules._functions import SyncBatchNorm as sync_batch_norm
 
 
-
 class BatchNormT(nn.BatchNorm1d):
     def __init__(self, *kargs, eps=1e-5):
         super(BatchNormT, self).__init__(*kargs, eps=eps)
-    
+
     def forward(self, input):
         # Need to transpose unlike original nn.BatchNorm1d
         input = input.transpose(-1, -2)
@@ -45,9 +44,11 @@ class BatchNormT(nn.BatchNorm1d):
         return nn.functional.batch_norm(
             input,
             # If buffers are not to be tracked, ensure that they won't be updated
-            self.running_mean
-            if not self.training or self.track_running_stats
-            else None,
+            (
+                self.running_mean
+                if not self.training or self.track_running_stats
+                else None
+            ),
             self.running_var if not self.training or self.track_running_stats else None,
             self.weight,
             self.bias,
@@ -55,7 +56,6 @@ class BatchNormT(nn.BatchNorm1d):
             exponential_average_factor,
             self.eps,
         ).transpose(-1, -2)
-    
 
 
 class SyncBatchNormT(nn.SyncBatchNorm):
@@ -67,11 +67,11 @@ class SyncBatchNormT(nn.SyncBatchNorm):
         momentum: float = 0.1,
         affine: bool = True,
         track_running_stats: bool = True,
-        process_group = None,
+        process_group=None,
         device=None,
-        dtype=None
+        dtype=None,
     ) -> None:
-        factory_kwargs = {'device': device, 'dtype': dtype}
+        factory_kwargs = {"device": device, "dtype": dtype}
         super(SyncBatchNormT, self).__init__(
             num_features, eps, momentum, affine, track_running_stats, **factory_kwargs
         )
@@ -125,7 +125,7 @@ class SyncBatchNormT(nn.SyncBatchNorm):
         )
 
         # Don't sync batchnorm stats in inference mode (model.eval()).
-        need_sync = (bn_training and self.training)
+        need_sync = bn_training and self.training
         if need_sync:
             process_group = torch.distributed.group.WORLD
             if self.process_group:
@@ -188,10 +188,10 @@ class SyncBatchNormT(nn.SyncBatchNorm):
         return module_output
 
 
-
 def get_model(args, model_config, model_type, weight_bits, input_bits):
+
     config = ViTConfig.from_pretrained(model_config)
-    
+
     config.drop_path = args.drop_path
     config.layer_norm_eps = 1e-5
     config.num_labels = args.nb_classes
@@ -199,15 +199,16 @@ def get_model(args, model_config, model_type, weight_bits, input_bits):
     config.shift5 = args.shift5
     config.norm_layer = BatchNormT if args.replace_ln_bn else nn.LayerNorm
     config.disable_layerscale = args.disable_layerscale
-    config.enable_cls_token = args.enable_cls_token
+    config.enable_cls_ = args.enable_cls_token
     config.gsb = args.gsb
     config.recu = args.recu
     config.weight_bits = weight_bits
     config.input_bits = input_bits
     config.some_fp = args.some_fp
+
     if model_type == "dbhvit":
         model = BHViTForImageClassification(config=config)
     else:
         raise NotImplementedError("Need to specify a supported model type.")
-    
+
     return model
