@@ -18,7 +18,14 @@ from torchvision.datasets import ImageFolder
 
 
 class CervicalCancerDataset(ImageFolder):
-    def __init__(self, root, transform=None, target_transform=None, loader=None):
+    def __init__(
+        self,
+        root,
+        transform=None,
+        target_transform=None,
+        category="name",
+        loader=default_loader,
+    ):
         """
         Args:
             root (str): Path to dataset split (e.g., '/path/to/train' or '/path/to/val')
