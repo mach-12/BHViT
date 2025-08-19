@@ -377,12 +377,22 @@ def train_one_epoch(
 
 
 @torch.no_grad()
-def evaluate(data_loader, model, device, split_name="val"):
+def evaluate(data_loader, model, device, split_name="Val"):
     criterion = torch.nn.CrossEntropyLoss()
 
     metric_logger = utils.MetricLogger(delimiter="  ")
-    header = f'{split_name}:'
+    header = f"{split_name}:"
 
+    # NEW: explicitly register meters so attribute access works later
+    metric_logger.add_meter(
+        "loss", utils.SmoothedValue(window_size=1, fmt="{value:.6f}")
+    )
+    metric_logger.add_meter(
+        "acc1", utils.SmoothedValue(window_size=1, fmt="{value:.3f}")
+    )
+    metric_logger.add_meter(
+        "acc5", utils.SmoothedValue(window_size=1, fmt="{value:.3f}")
+    )
 
     # switch to evaluation mode
     model.eval()
@@ -397,13 +407,22 @@ def evaluate(data_loader, model, device, split_name="val"):
             loss = criterion(output.logits, target)
 
         acc1, acc5 = accuracy(output.logits, target, topk=(1, 5))
-
         batch_size = images.shape[0]
+
+        # keep weighted averaging for accuracies
         metric_logger.update(loss=loss.item())
+        metric_logger.meters["acc1"].update(acc1.item(), n=batch_size)
+        metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
 
     metric_logger.synchronize_between_processes()
-    print('* [{}] Acc@1 {top1.global_avg:.3f} Acc@5 {top5.global_avg:.3f} loss {losses.global_avg:.3f}'
-        .format(split_name, top1=metric_logger.acc1, top5=metric_logger.acc5, losses=metric_logger.loss))
 
+    print(
+        "* [{}] Acc@1 {top1.global_avg:.3f} Acc@5 {top5.global_avg:.3f} loss {losses.global_avg:.3f}".format(
+            split_name,
+            top1=metric_logger.acc1,
+            top5=metric_logger.acc5,
+            losses=metric_logger.loss,
+        )
+    )
 
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}

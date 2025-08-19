@@ -21,7 +21,7 @@ from models import SyncBatchNormT, get_model
 import utils
 from losses import DistributionLoss
 from plot import TrainingPlots, ViTAttentionPlots
-
+import os
 
 def get_args_parser():
     parser = argparse.ArgumentParser(
