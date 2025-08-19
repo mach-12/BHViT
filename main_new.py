@@ -14,7 +14,7 @@ from timm.scheduler import create_scheduler
 from timm.optim import create_optimizer
 from timm.utils import NativeScaler, get_state_dict, ModelEma
 
-from datasets import build_dataset
+from datasets import build_dataset, build_transform, CervicalCancerDataset
 from engine import train_one_epoch, evaluate, train_one_epoch_L1
 from samplers import RASampler
 from models import SyncBatchNormT, get_model
@@ -455,6 +455,24 @@ def main(args):
     dataset_train, args.nb_classes = build_dataset(is_train=True, args=args)
     dataset_val, _ = build_dataset(is_train=False, args=args)
 
+    # optional test split (only for cervical cancer if /test exists)
+    data_loader_test = None
+    dataset_test = None
+    test_dir = Path(args.data_path) / "test"
+    if args.data_set == "CERVICAL" and test_dir.exists():
+        dataset_test = CervicalCancerDataset(
+            str(test_dir), transform=build_transform(is_train=False, args=args)
+        )
+
+        data_loader_test = torch.utils.data.DataLoader(
+            dataset_test,
+            batch_size=args.batch_size,
+            shuffle=False,
+            num_workers=args.num_workers,
+            pin_memory=args.pin_mem,
+            drop_last=False,
+        )
+
     if True:  # args.distributed:
         num_tasks = utils.get_world_size()
         global_rank = utils.get_rank()
@@ -589,14 +607,14 @@ def main(args):
         #      model_without_ddp.load_state_dict(best_model, strict=(not args.no_strict_load))
         model_without_ddp.load_state_dict(state_dict, strict=False)
         if args.resume:
-            test_stats = evaluate(data_loader_val, model, device)
+            val_stats = evaluate(data_loader_val, model, device, split_name="Val")
             print(
-                f"Accuracy of the best network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%"
+                f"Accuracy of the best network on the {len(dataset_val)} val images: {val_stats['acc1']:.1f}%"
             )
-            max_accuracy = test_stats["acc1"]
+            max_accuracy = val_stats["acc1"]
 
             if plotter is not None:
-                plotter.update_epoch(train_stats, test_stats, epoch)
+                plotter.update_epoch(train_stats, val_stats, epoch, test_stats)
 
             # if attn_viz is not None and args.viz_attn and args.viz_every > 0 and (epoch + 1) % args.viz_every == 0:
             #     attn_viz.visualize_from_loader(model, data_loader_val, device, max_images=args.viz_samples)
@@ -647,9 +665,9 @@ def main(args):
                 loss_scaler.load_state_dict(checkpoint["scaler"])
         lr_scheduler.step(args.start_epoch - 1)
 
-        test_stats = evaluate(data_loader_val, model, device)
+        val_stats = evaluate(data_loader_val, model, device, split_name="Val")
         print(
-            f"Accuracy of the checkpoint network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%"
+            f"Accuracy of the checkpoint network on the {len(dataset_val)} val images: {val_stats['acc1']:.1f}%"
         )
 
     print("Start training")
@@ -710,8 +728,21 @@ def main(args):
             f"Accuracy of the network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%"
         )
 
-        if max_accuracy < test_stats["acc1"]:
-            max_accuracy = test_stats["acc1"]
+        # Validation
+        val_stats = evaluate(data_loader_val, model, device, split_name="Val")
+        print(f"Accuracy on {len(dataset_val)} val images: {val_stats['acc1']:.1f}%")
+
+        # Optional Test (if available)
+        test_stats = None
+        if data_loader_test is not None:
+            test_stats = evaluate(data_loader_test, model, device, split_name="Test")
+            print(
+                f"Accuracy on {len(dataset_test)} test images: {test_stats['acc1']:.1f}%"
+            )
+
+        # Track best on validation
+        if max_accuracy < val_stats["acc1"]:
+            max_accuracy = val_stats["acc1"]
             if args.output_dir:
                 best_paths = [output_dir / "best.pth"]
                 for best_path in best_paths:
@@ -731,7 +762,12 @@ def main(args):
 
         log_stats = {
             **{f"train_{k}": v for k, v in train_stats.items()},
-            **{f"test_{k}": v for k, v in test_stats.items()},
+            **{f"val_{k}": v for k, v in val_stats.items()},
+            **(
+                {f"test_{k}": v for k, v in test_stats.items()}
+                if test_stats is not None
+                else {}
+            ),
             "epoch": epoch,
             "n_parameters": n_parameters,
         }
@@ -747,15 +783,24 @@ def main(args):
     # final confusion matrix + classification report + summary
     if plotter is not None:
         # uses the current (final) model weights
+        # Validation artifacts
         plotter.save_confusion_and_report(
-            model, data_loader_val, device, normalize="true"
+            model, data_loader_val, device, normalize="true", file_prefix="val"
         )
+
+        # Test artifacts (only if you have a test loader)
+        if data_loader_test is not None:
+            plotter.save_confusion_and_report(
+                model, data_loader_test, device, normalize="true", file_prefix="test"
+            )
+
         plotter.save_summary(max_accuracy=max_accuracy, total_epochs=args.epochs)
 
         # Final interpretability set on validation images
         if attn_viz is not None and args.viz_attn:
-            attn_viz.visualize_from_loader(model, data_loader_val, device, max_images=args.viz_samples)
-
+            attn_viz.visualize_from_loader(
+                model, data_loader_val, device, max_images=args.viz_samples
+            )
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))

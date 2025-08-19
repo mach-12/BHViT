@@ -16,19 +16,46 @@ from timm.utils import accuracy, ModelEma
 import utils
 
 
-def train_mix_epoch(model: torch.nn.Module, teacher_model: torch.nn.Module, criterion: torch.nn.Module,
-                    criterion2: torch.nn.Module, data_loader: Iterable, optimizer: torch.optim.Optimizer,
-                    device: torch.device, epoch: int, loss_scaler, max_norm: float = 0,
-                    model_ema: Optional[ModelEma] = None, mixup_fn: Optional[Mixup] = None):
+def _hard_targets(targets: torch.Tensor) -> torch.Tensor:
+    # works for both hard (N,) and soft/one-hot (N, C) labels (e.g., mixup)
+    return targets.argmax(dim=1) if targets.ndim == 2 else targets
+
+
+def train_mix_epoch(
+    model: torch.nn.Module,
+    teacher_model: torch.nn.Module,
+    criterion: torch.nn.Module,
+    criterion2: torch.nn.Module,
+    data_loader: Iterable,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+    epoch: int,
+    loss_scaler,
+    max_norm: float = 0,
+    model_ema: Optional[ModelEma] = None,
+    mixup_fn: Optional[Mixup] = None,
+):
     # TODO fix this for finetuning
     model.train()
     criterion.train()
     base = SoftTargetCrossEntropy()
     metric_logger = utils.MetricLogger(delimiter="  ")
-    metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
-    metric_logger.add_meter('base_loss', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
-    metric_logger.add_meter('distillation_loss', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
-    header = 'Epoch: [{}]'.format(epoch)
+    metric_logger.add_meter("lr", utils.SmoothedValue(window_size=1, fmt="{value:.6f}"))
+    metric_logger.add_meter(
+        "base_loss", utils.SmoothedValue(window_size=1, fmt="{value:.6f}")
+    )
+    metric_logger.add_meter(
+        "distillation_loss", utils.SmoothedValue(window_size=1, fmt="{value:.6f}")
+    )
+
+    metric_logger.add_meter(
+        "acc1", utils.SmoothedValue(window_size=1, fmt="{value:.3f}")
+    )
+    metric_logger.add_meter(
+        "acc5", utils.SmoothedValue(window_size=1, fmt="{value:.3f}")
+    )
+
+    header = "Epoch: [{}]".format(epoch)
     print_freq = 100
 
     for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
@@ -39,21 +66,33 @@ def train_mix_epoch(model: torch.nn.Module, teacher_model: torch.nn.Module, crit
             samples, targets = mixup_fn(samples, targets)
 
         with torch.cuda.amp.autocast():
+
             outputs = model(samples)
+
+            hard_t = _hard_targets(targets)
+            acc1, acc5 = accuracy(outputs.logits, hard_t, topk=(1, 5))
+
             base_loss = base(outputs.logits, targets)
             with torch.no_grad():
                 teacher_outputs = teacher_model(samples)
                 distillation_loss = criterion(outputs.logits, teacher_outputs)
-        loss = base_loss * (1 - 0.9) + distillation_loss * 0.9       
+        loss = base_loss * (1 - 0.9) + distillation_loss * 0.9
         loss_value = loss.item()
         base_loss_value = base_loss.item()
         distillation_loss_value = distillation_loss.item()
         optimizer.zero_grad()
 
         # this attribute is added by timm on one optimizer (adahessian)
-        is_second_order = hasattr(optimizer, 'is_second_order') and optimizer.is_second_order
-        loss_scaler(loss, optimizer, clip_grad=max_norm,
-                    parameters=model.parameters(), create_graph=is_second_order)
+        is_second_order = (
+            hasattr(optimizer, "is_second_order") and optimizer.is_second_order
+        )
+        loss_scaler(
+            loss,
+            optimizer,
+            clip_grad=max_norm,
+            parameters=model.parameters(),
+            create_graph=is_second_order,
+        )
 
         torch.cuda.synchronize()
         if model_ema is not None:
@@ -62,22 +101,41 @@ def train_mix_epoch(model: torch.nn.Module, teacher_model: torch.nn.Module, crit
         metric_logger.update(distillation_loss=distillation_loss_value)
         metric_logger.update(loss=loss_value)
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
+        metric_logger.update(acc1=acc1.item(), acc5=acc5.item())
+
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
-def train_one_epoch_L1(model: torch.nn.Module, teacher_model: torch.nn.Module, criterion: torch.nn.Module,
-                    criterion2: torch.nn.Module, data_loader: Iterable, optimizer: torch.optim.Optimizer,
-                    device: torch.device, epoch: int, loss_scaler, max_norm: float = 0,
-                    model_ema: Optional[ModelEma] = None, mixup_fn: Optional[Mixup] = None):
+def train_one_epoch_L1(
+    model: torch.nn.Module,
+    teacher_model: torch.nn.Module,
+    criterion: torch.nn.Module,
+    criterion2: torch.nn.Module,
+    data_loader: Iterable,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+    epoch: int,
+    loss_scaler,
+    max_norm: float = 0,
+    model_ema: Optional[ModelEma] = None,
+    mixup_fn: Optional[Mixup] = None,
+):
     # TODO fix this for finetuning
     model.train()
     criterion.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
-    metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
-    header = 'Epoch: [{}]'.format(epoch)
+    metric_logger.add_meter("lr", utils.SmoothedValue(window_size=1, fmt="{value:.6f}"))
+    metric_logger.add_meter(
+        "acc1", utils.SmoothedValue(window_size=1, fmt="{value:.3f}")
+    )
+    metric_logger.add_meter(
+        "acc5", utils.SmoothedValue(window_size=1, fmt="{value:.3f}")
+    )
+
+    header = "Epoch: [{}]".format(epoch)
     print_freq = 10
     for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
         samples = samples.to(device, non_blocking=True)
@@ -88,21 +146,36 @@ def train_one_epoch_L1(model: torch.nn.Module, teacher_model: torch.nn.Module, c
 
         with torch.cuda.amp.autocast():
             outputs = model(samples)
-            regularization_loss=0
-            n=0
+
+            hard_t = _hard_targets(targets)
+            acc1, acc5 = accuracy(outputs.logits, hard_t, topk=(1, 5))
+
+            regularization_loss = 0
+            n = 0
             for name, parameters in model.named_parameters():
-                regular = "cov1.weight" in name or "cov2.weight" in name or "cov3.weight" in name or "dense.weight" in name or "query.weight" in name or "key.weight" in name or "value.weight" in name
+                regular = (
+                    "cov1.weight" in name
+                    or "cov2.weight" in name
+                    or "cov3.weight" in name
+                    or "dense.weight" in name
+                    or "query.weight" in name
+                    or "key.weight" in name
+                    or "value.weight" in name
+                )
                 if regular:
-                    n=n+1
-                    regularization_loss += torch.sum(torch.abs(torch.abs(parameters)-1.0))/parameters.numel()
-            if n!=0:
-                regularization_loss = regularization_loss/n
+                    n = n + 1
+                    regularization_loss += (
+                        torch.sum(torch.abs(torch.abs(parameters) - 1.0))
+                        / parameters.numel()
+                    )
+            if n != 0:
+                regularization_loss = regularization_loss / n
             if teacher_model is not None:
                 with torch.no_grad():
                     teacher_outputs = teacher_model(samples)
                 loss1 = criterion(outputs.logits, teacher_outputs)
-                loss = 0.9 * loss1 +0.1*regularization_loss
-                
+                loss = 0.9 * loss1 + 0.1 * regularization_loss
+
             else:
                 loss = criterion(outputs.logits, targets)
 
@@ -115,9 +188,16 @@ def train_one_epoch_L1(model: torch.nn.Module, teacher_model: torch.nn.Module, c
         optimizer.zero_grad()
 
         # this attribute is added by timm on one optimizer (adahessian)
-        is_second_order = hasattr(optimizer, 'is_second_order') and optimizer.is_second_order
-        loss_scaler(loss, optimizer, clip_grad=max_norm,
-                    parameters=model.parameters(), create_graph=is_second_order)
+        is_second_order = (
+            hasattr(optimizer, "is_second_order") and optimizer.is_second_order
+        )
+        loss_scaler(
+            loss,
+            optimizer,
+            clip_grad=max_norm,
+            parameters=model.parameters(),
+            create_graph=is_second_order,
+        )
 
         torch.cuda.synchronize()
         if model_ema is not None:
@@ -125,21 +205,41 @@ def train_one_epoch_L1(model: torch.nn.Module, teacher_model: torch.nn.Module, c
 
         metric_logger.update(loss=loss_value)
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
+        metric_logger.update(acc1=acc1.item(), acc5=acc5.item())
+
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
-def train_one_epoch2(model: torch.nn.Module, teacher_model: torch.nn.Module, criterion: torch.nn.Module,
-                    criterion2: torch.nn.Module, data_loader: Iterable, optimizer: torch.optim.Optimizer,
-                    device: torch.device, epoch: int, loss_scaler, max_norm: float = 0,
-                    model_ema: Optional[ModelEma] = None, mixup_fn: Optional[Mixup] = None):
+
+def train_one_epoch2(
+    model: torch.nn.Module,
+    teacher_model: torch.nn.Module,
+    criterion: torch.nn.Module,
+    criterion2: torch.nn.Module,
+    data_loader: Iterable,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+    epoch: int,
+    loss_scaler,
+    max_norm: float = 0,
+    model_ema: Optional[ModelEma] = None,
+    mixup_fn: Optional[Mixup] = None,
+):
     # TODO fix this for finetuning
     model.train()
     criterion.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
-    metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
-    header = 'Epoch: [{}]'.format(epoch)
+    metric_logger.add_meter("lr", utils.SmoothedValue(window_size=1, fmt="{value:.6f}"))
+    metric_logger.add_meter(
+        "acc1", utils.SmoothedValue(window_size=1, fmt="{value:.3f}")
+    )
+    metric_logger.add_meter(
+        "acc5", utils.SmoothedValue(window_size=1, fmt="{value:.3f}")
+    )
+
+    header = "Epoch: [{}]".format(epoch)
     print_freq = 10
 
     for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
@@ -148,6 +248,8 @@ def train_one_epoch2(model: torch.nn.Module, teacher_model: torch.nn.Module, cri
 
         with torch.cuda.amp.autocast():
             outputs = model(samples)
+            hard_t = _hard_targets(targets)
+            acc1, acc5 = accuracy(outputs.logits, hard_t, topk=(1, 5))
             loss = criterion(outputs.logits, targets)
 
         loss_value = loss.item()
@@ -159,9 +261,16 @@ def train_one_epoch2(model: torch.nn.Module, teacher_model: torch.nn.Module, cri
         optimizer.zero_grad()
 
         # this attribute is added by timm on one optimizer (adahessian)
-        is_second_order = hasattr(optimizer, 'is_second_order') and optimizer.is_second_order
-        loss_scaler(loss, optimizer, clip_grad=max_norm,
-                    parameters=model.parameters(), create_graph=is_second_order)
+        is_second_order = (
+            hasattr(optimizer, "is_second_order") and optimizer.is_second_order
+        )
+        loss_scaler(
+            loss,
+            optimizer,
+            clip_grad=max_norm,
+            parameters=model.parameters(),
+            create_graph=is_second_order,
+        )
 
         torch.cuda.synchronize()
         if model_ema is not None:
@@ -169,22 +278,41 @@ def train_one_epoch2(model: torch.nn.Module, teacher_model: torch.nn.Module, cri
 
         metric_logger.update(loss=loss_value)
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
+        metric_logger.update(acc1=acc1.item(), acc5=acc5.item())
+
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
-def train_one_epoch(model: torch.nn.Module, teacher_model: torch.nn.Module, criterion: torch.nn.Module,
-                    criterion2: torch.nn.Module, data_loader: Iterable, optimizer: torch.optim.Optimizer,
-                    device: torch.device, epoch: int, loss_scaler, max_norm: float = 0,
-                    model_ema: Optional[ModelEma] = None, mixup_fn: Optional[Mixup] = None):
+def train_one_epoch(
+    model: torch.nn.Module,
+    teacher_model: torch.nn.Module,
+    criterion: torch.nn.Module,
+    criterion2: torch.nn.Module,
+    data_loader: Iterable,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+    epoch: int,
+    loss_scaler,
+    max_norm: float = 0,
+    model_ema: Optional[ModelEma] = None,
+    mixup_fn: Optional[Mixup] = None,
+):
     # TODO fix this for finetuning
     model.train()
     criterion.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
-    metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
-    header = 'Epoch: [{}]'.format(epoch)
+    metric_logger.add_meter("lr", utils.SmoothedValue(window_size=1, fmt="{value:.6f}"))
+    metric_logger.add_meter(
+        "acc1", utils.SmoothedValue(window_size=1, fmt="{value:.3f}")
+    )
+    metric_logger.add_meter(
+        "acc5", utils.SmoothedValue(window_size=1, fmt="{value:.3f}")
+    )
+
+    header = "Epoch: [{}]".format(epoch)
     print_freq = 10
 
     for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
@@ -195,7 +323,10 @@ def train_one_epoch(model: torch.nn.Module, teacher_model: torch.nn.Module, crit
         #     samples, targets = mixup_fn(samples, targets)
 
         with torch.cuda.amp.autocast():
+
             outputs = model(samples)
+            hard_t = _hard_targets(targets)
+            acc1, acc5 = accuracy(outputs.logits, hard_t, topk=(1, 5))
             if teacher_model is not None and mixup_fn is not None:
                 with torch.no_grad():
                     teacher_outputs = teacher_model(samples)
@@ -207,7 +338,7 @@ def train_one_epoch(model: torch.nn.Module, teacher_model: torch.nn.Module, crit
                 with torch.no_grad():
                     teacher_outputs = teacher_model(samples)
                 loss = criterion(outputs.logits, teacher_outputs)
-                
+
             else:
                 loss = criterion(outputs.logits, targets)
 
@@ -220,9 +351,16 @@ def train_one_epoch(model: torch.nn.Module, teacher_model: torch.nn.Module, crit
         optimizer.zero_grad()
 
         # this attribute is added by timm on one optimizer (adahessian)
-        is_second_order = hasattr(optimizer, 'is_second_order') and optimizer.is_second_order
-        loss_scaler(loss, optimizer, clip_grad=max_norm,
-                    parameters=model.parameters(), create_graph=is_second_order)
+        is_second_order = (
+            hasattr(optimizer, "is_second_order") and optimizer.is_second_order
+        )
+        loss_scaler(
+            loss,
+            optimizer,
+            clip_grad=max_norm,
+            parameters=model.parameters(),
+            create_graph=is_second_order,
+        )
 
         torch.cuda.synchronize()
         if model_ema is not None:
@@ -230,6 +368,8 @@ def train_one_epoch(model: torch.nn.Module, teacher_model: torch.nn.Module, crit
 
         metric_logger.update(loss=loss_value)
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
+        metric_logger.update(acc1=acc1.item(), acc5=acc5.item())
+
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
@@ -237,11 +377,12 @@ def train_one_epoch(model: torch.nn.Module, teacher_model: torch.nn.Module, crit
 
 
 @torch.no_grad()
-def evaluate(data_loader, model, device):
+def evaluate(data_loader, model, device, split_name="val"):
     criterion = torch.nn.CrossEntropyLoss()
 
     metric_logger = utils.MetricLogger(delimiter="  ")
-    header = 'Test:'
+    header = f'{split_name}:'
+
 
     # switch to evaluation mode
     model.eval()
@@ -259,10 +400,10 @@ def evaluate(data_loader, model, device):
 
         batch_size = images.shape[0]
         metric_logger.update(loss=loss.item())
-        metric_logger.meters['acc1'].update(acc1.item(), n=batch_size)
-        metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
+
     metric_logger.synchronize_between_processes()
-    print('* Acc@1 {top1.global_avg:.3f} Acc@5 {top5.global_avg:.3f} loss {losses.global_avg:.3f}'
-          .format(top1=metric_logger.acc1, top5=metric_logger.acc5, losses=metric_logger.loss))
+    print('* [{}] Acc@1 {top1.global_avg:.3f} Acc@5 {top5.global_avg:.3f} loss {losses.global_avg:.3f}'
+        .format(split_name, top1=metric_logger.acc1, top5=metric_logger.acc5, losses=metric_logger.loss))
+
 
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}

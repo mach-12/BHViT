@@ -394,40 +394,60 @@ class TrainingPlots:
             "epoch": [],
             "train_loss": [],
             "val_loss": [],
+            "test_loss": [],  # NEW
             "train_acc1": [],
             "val_acc1": [],
+            "test_acc1": [],  # NEW
             "lr": [],
         }
 
     # ---------- Public API ----------
 
-    def update_epoch(self, train_stats: Dict, val_stats: Dict, epoch: int) -> None:
+    def update_epoch(
+        self,
+        train_stats: Dict,
+        val_stats: Dict,
+        epoch: int,
+        test_stats: Optional[Dict] = None,
+    ) -> None:
         """
         Record stats and write rolling history (json/csv) + update loss/acc plot.
 
         Expected typical keys:
-          train_stats: {"loss": float, "acc1": (optional), "lr": float}
-          val_stats:   {"loss": float, "acc1": float, "acc5": (optional)}
+        train_stats: {"loss": float, "acc1": (optional), "lr": float}
+        val_stats:   {"loss": float, "acc1": float}
+        test_stats:  {"loss": float, "acc1": float}  (optional)
         Works even if some keys are missing.
         """
         self.history["epoch"].append(int(epoch))
 
-        # Train loss
+        # Train loss / acc1
         self.history["train_loss"].append(float(train_stats.get("loss", np.nan)))
-        # Val loss
-        self.history["val_loss"].append(float(val_stats.get("loss", np.nan)))
-
-        # Train acc1 (may be missing)
         tacc = train_stats.get("acc1", np.nan)
         if isinstance(tacc, (list, tuple)):
             tacc = tacc[0]
         self.history["train_acc1"].append(float(tacc) if tacc is not None else np.nan)
 
-        # Val acc1
+        # Val loss / acc1
+        self.history["val_loss"].append(float(val_stats.get("loss", np.nan)))
         vacc = val_stats.get("acc1", np.nan)
         if isinstance(vacc, (list, tuple)):
             vacc = vacc[0]
         self.history["val_acc1"].append(float(vacc) if vacc is not None else np.nan)
+
+        # Test loss / acc1 (optional)
+        if test_stats is not None:
+            self.history["test_loss"].append(float(test_stats.get("loss", np.nan)))
+            teacc = test_stats.get("acc1", np.nan)
+            if isinstance(teacc, (list, tuple)):
+                teacc = teacc[0]
+            self.history["test_acc1"].append(
+                float(teacc) if teacc is not None else np.nan
+            )
+        else:
+            # keep CSV column alignment even when test isn’t evaluated this epoch
+            self.history["test_loss"].append(np.nan)
+            self.history["test_acc1"].append(np.nan)
 
         # LR
         self.history["lr"].append(float(train_stats.get("lr", np.nan)))
@@ -443,13 +463,16 @@ class TrainingPlots:
         device: torch.device,
         normalize: str = "true",
         max_batches: Optional[int] = None,
+        file_prefix: str = "",  # NEW
     ) -> None:
         """
-        Runs a validation pass to collect predictions/targets and saves:
-          - confusion_matrix.png, .npy, .csv, normalized .csv
-          - classification_report.json, .txt
-          - predictions.csv (per-sample)
+        Runs a validation/test pass and saves:
+        - {prefix_}confusion_matrix.png/.npy/.csv/.normalized.csv
+        - {prefix_}classification_report.json/.txt
+        - {prefix_}predictions.csv
         """
+        stem = f"{file_prefix}_" if file_prefix else ""  # NEW
+
         y_true, y_pred, y_conf = self._collect_predictions(
             model, data_loader, device, max_batches
         )
@@ -464,17 +487,23 @@ class TrainingPlots:
         # Compute confusion matrix & report
         try:
             from sklearn.metrics import confusion_matrix, classification_report
-        except Exception as e:  # sklearn not installed
+        except Exception as e:
             raise ImportError(
                 "scikit-learn is required for confusion matrix & classification report "
                 "(pip install scikit-learn)"
             ) from e
 
         cm = confusion_matrix(y_true, y_pred, labels=labels)
-        self._save_cm_arrays(cm, labels)
+        self._save_cm_arrays(cm, labels, file_prefix=file_prefix)  # NEW
 
         # Plot confusion matrix
-        self._plot_confusion_matrix(cm, labels, self.class_names, normalize=normalize)
+        self._plot_confusion_matrix(
+            cm,
+            labels,
+            self.class_names,
+            normalize=normalize,
+            file_prefix=file_prefix,  # NEW
+        )
 
         # Classification report
         report_dict = classification_report(
@@ -488,46 +517,55 @@ class TrainingPlots:
             y_true, y_pred, target_names=self.class_names, zero_division=0
         )
 
-        (self.metrics_dir / "classification_report.json").write_text(
+        (self.metrics_dir / f"{stem}classification_report.json").write_text(
             json.dumps(report_dict, indent=2)
         )
-        (self.metrics_dir / "classification_report.txt").write_text(report_txt)
+        (self.metrics_dir / f"{stem}classification_report.txt").write_text(report_txt)
 
-        # Save per-sample predictions
-        self._dump_predictions_csv(y_true, y_pred, y_conf)
+        # Per-sample predictions
+        self._dump_predictions_csv(
+            y_true, y_pred, y_conf, file_prefix=file_prefix
+        )  # NEW
 
-    def save_summary(self, max_accuracy: float, total_epochs: int) -> None:
-        summary = {
-            "max_accuracy_top1": float(max_accuracy),
-            "total_epochs": int(total_epochs),
-            "last_epoch": (
-                int(self.history["epoch"][-1]) if self.history["epoch"] else None
-            ),
-        }
-        (self.metrics_dir / "summary.json").write_text(json.dumps(summary, indent=2))
+        def save_summary(self, max_accuracy: float, total_epochs: int) -> None:
+            summary = {
+                "max_accuracy_top1": float(max_accuracy),
+                "total_epochs": int(total_epochs),
+                "last_epoch": (
+                    int(self.history["epoch"][-1]) if self.history["epoch"] else None
+                ),
+            }
+            (self.metrics_dir / "summary.json").write_text(
+                json.dumps(summary, indent=2)
+            )
 
-    # ---------- Internals ----------
-
-    def _dump_history(self) -> None:
-        # JSON
-        (self.metrics_dir / "history.json").write_text(
-            json.dumps(self.history, indent=2)
-        )
-        # CSV
-        keys = ["epoch", "train_loss", "val_loss", "train_acc1", "val_acc1", "lr"]
-        with (self.metrics_dir / "history.csv").open("w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(keys)
-            rows = zip(*(self.history[k] for k in keys))
-            for r in rows:
-                writer.writerow(r)
+        # ---------- Internals ----------
+        def _dump_history(self) -> None:
+            (self.metrics_dir / "history.json").write_text(
+                json.dumps(self.history, indent=2)
+            )
+            keys = [
+                "epoch",
+                "train_loss",
+                "val_loss",
+                "test_loss",
+                "train_acc1",
+                "val_acc1",
+                "test_acc1",
+                "lr",
+            ]
+            with (self.metrics_dir / "history.csv").open("w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(keys)
+                rows = zip(*(self.history[k] for k in keys))
+                for r in rows:
+                    writer.writerow(r)
 
     def _plot_loss_acc(self) -> None:
         epochs = self.history["epoch"]
         if not epochs:
             return
 
-        # Build figure
         fig = plt.figure(figsize=(10, 6), dpi=150)
 
         # Loss
@@ -535,9 +573,10 @@ class TrainingPlots:
             plt.plot(epochs, self.history["train_loss"], label="train loss")
         if not all(math.isnan(x) for x in self.history["val_loss"]):
             plt.plot(epochs, self.history["val_loss"], label="val loss")
+        if not all(math.isnan(x) for x in self.history["test_loss"]):
+            plt.plot(epochs, self.history["test_loss"], label="test loss")
 
-        # Accuracy (top-1)
-        # Plot on same axes but with dashed lines to differentiate
+        # Acc@1 (use dashed styles)
         if not all(math.isnan(x) for x in self.history["train_acc1"]):
             plt.plot(
                 epochs,
@@ -548,6 +587,13 @@ class TrainingPlots:
         if not all(math.isnan(x) for x in self.history["val_acc1"]):
             plt.plot(
                 epochs, self.history["val_acc1"], linestyle="--", label="val acc@1 (%)"
+            )
+        if not all(math.isnan(x) for x in self.history["test_acc1"]):
+            plt.plot(
+                epochs,
+                self.history["test_acc1"],
+                linestyle="--",
+                label="test acc@1 (%)",
             )
 
         plt.xlabel("Epoch")
@@ -566,6 +612,7 @@ class TrainingPlots:
         labels: List[int],
         class_names: List[str],
         normalize: str = "true",
+        file_prefix: str = "",  # NEW
     ) -> None:
         try:
             from sklearn.metrics import ConfusionMatrixDisplay
@@ -574,7 +621,6 @@ class TrainingPlots:
                 "scikit-learn required for plotting confusion matrix"
             ) from e
 
-        # Optional normalization
         cm_plot = cm.copy().astype(np.float64)
         norm_mode = (normalize or "").lower()
         if norm_mode in {"true", "pred", "all"}:
@@ -602,15 +648,23 @@ class TrainingPlots:
         )
         plt.xticks(rotation=90)
         fig.tight_layout()
-        fig.savefig(self.img_dir / "confusion_matrix.png")
+
+        stem = f"{file_prefix}_" if file_prefix else ""  # NEW
+        fig.savefig(self.img_dir / f"{stem}confusion_matrix.png")  # NEW
         plt.close(fig)
 
-    def _save_cm_arrays(self, cm: np.ndarray, labels: List[int]) -> None:
+    def _save_cm_arrays(
+        self, cm: np.ndarray, labels: List[int], file_prefix: str = ""
+    ) -> None:
+        stem = f"{file_prefix}_" if file_prefix else ""  # NEW
+
         # Raw cm
-        np.save(self.metrics_dir / "confusion_matrix.npy", cm)
+        np.save(self.metrics_dir / f"{stem}confusion_matrix.npy", cm)
 
         # CSV raw
-        with (self.metrics_dir / "confusion_matrix.csv").open("w", newline="") as f:
+        with (self.metrics_dir / f"{stem}confusion_matrix.csv").open(
+            "w", newline=""
+        ) as f:
             writer = csv.writer(f)
             writer.writerow([""] + labels)
             for i, row in enumerate(cm):
@@ -620,7 +674,7 @@ class TrainingPlots:
         with np.errstate(invalid="ignore", divide="ignore"):
             row_sum = cm.sum(axis=1, keepdims=True)
             cm_norm = cm.astype(np.float64) / np.maximum(row_sum, 1)
-        with (self.metrics_dir / "confusion_matrix_normalized.csv").open(
+        with (self.metrics_dir / f"{stem}confusion_matrix_normalized.csv").open(
             "w", newline=""
         ) as f:
             writer = csv.writer(f)
@@ -629,9 +683,14 @@ class TrainingPlots:
                 writer.writerow([labels[i]] + [f"{v:.6f}" for v in row.tolist()])
 
     def _dump_predictions_csv(
-        self, y_true: np.ndarray, y_pred: np.ndarray, y_conf: np.ndarray
+        self,
+        y_true: np.ndarray,
+        y_pred: np.ndarray,
+        y_conf: np.ndarray,
+        file_prefix: str = "",
     ) -> None:
-        with (self.metrics_dir / "predictions.csv").open("w", newline="") as f:
+        stem = f"{file_prefix}_" if file_prefix else ""  # NEW
+        with (self.metrics_dir / f"{stem}predictions.csv").open("w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["index", "target", "pred", "correct", "confidence"])
             for i, (t, p, c) in enumerate(zip(y_true, y_pred, y_conf)):
