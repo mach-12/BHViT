@@ -527,39 +527,39 @@ class TrainingPlots:
             y_true, y_pred, y_conf, file_prefix=file_prefix
         )  # NEW
 
-        def save_summary(self, max_accuracy: float, total_epochs: int) -> None:
-            summary = {
-                "max_accuracy_top1": float(max_accuracy),
-                "total_epochs": int(total_epochs),
-                "last_epoch": (
-                    int(self.history["epoch"][-1]) if self.history["epoch"] else None
-                ),
-            }
-            (self.metrics_dir / "summary.json").write_text(
-                json.dumps(summary, indent=2)
-            )
+    def save_summary(self, max_accuracy: float, total_epochs: int) -> None:
+        summary = {
+            "max_accuracy_top1": float(max_accuracy),
+            "total_epochs": int(total_epochs),
+            "last_epoch": (
+                int(self.history["epoch"][-1]) if self.history["epoch"] else None
+            ),
+        }
+        (self.metrics_dir / "summary.json").write_text(
+            json.dumps(summary, indent=2)
+        )
 
-        # ---------- Internals ----------
-        def _dump_history(self) -> None:
-            (self.metrics_dir / "history.json").write_text(
-                json.dumps(self.history, indent=2)
-            )
-            keys = [
-                "epoch",
-                "train_loss",
-                "val_loss",
-                "test_loss",
-                "train_acc1",
-                "val_acc1",
-                "test_acc1",
-                "lr",
-            ]
-            with (self.metrics_dir / "history.csv").open("w", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow(keys)
-                rows = zip(*(self.history[k] for k in keys))
-                for r in rows:
-                    writer.writerow(r)
+    # ---------- Internals ----------
+    def _dump_history(self) -> None:
+        (self.metrics_dir / "history.json").write_text(
+            json.dumps(self.history, indent=2)
+        )
+        keys = [
+            "epoch",
+            "train_loss",
+            "val_loss",
+            "test_loss",
+            "train_acc1",
+            "val_acc1",
+            "test_acc1",
+            "lr",
+        ]
+        with (self.metrics_dir / "history.csv").open("w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(keys)
+            rows = zip(*(self.history[k] for k in keys))
+            for r in rows:
+                writer.writerow(r)
 
     def _plot_loss_acc(self) -> None:
         epochs = self.history["epoch"]
