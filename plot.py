@@ -637,7 +637,7 @@ class TrainingPlots:
         disp = ConfusionMatrixDisplay(
             confusion_matrix=cm_plot, display_labels=class_names
         )
-        disp.plot(include_values=False, cmap="Blues", ax=ax, colorbar=True)
+        disp.plot(include_values=True, cmap="Blues", ax=ax, colorbar=True)
         plt.title(
             "Confusion Matrix"
             + (
