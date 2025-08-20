@@ -56,7 +56,6 @@ class ViTAttentionPlots:
         # Attribution tool (lazy init per model)
         self.tool: BHViTAttribution | None = None
 
-    @torch.inference_mode()
     def visualize_from_loader(
         self,
         model: torch.nn.Module,
@@ -114,19 +113,22 @@ class ViTAttentionPlots:
 
         pixel_values = img_1x.to(device)
 
-        # compute multiple rollout strategies
-        rollouts: Dict[str, torch.Tensor] = {
-            "mean": self.tool.last_stage_rollout(pixel_values, fusion="mean"),
-            "gmean": self.tool.last_stage_rollout(pixel_values, fusion="gmean"),
-            "max": self.tool.last_stage_rollout(pixel_values, fusion="max"),
-            "sum": self.tool.last_stage_rollout(pixel_values, fusion="sum"),
-            "grad": self.tool.last_stage_rollout(
-                pixel_values, fusion="grad", use_grad_for_target=True
-            ),
-        }
+        # --- non-grad rollouts under no_grad ---
+        with torch.no_grad():
+            rollouts: Dict[str, torch.Tensor] = {
+                "mean": self.tool.last_stage_rollout(pixel_values, fusion="mean"),
+                "gmean": self.tool.last_stage_rollout(pixel_values, fusion="gmean"),
+                "max": self.tool.last_stage_rollout(pixel_values, fusion="max"),
+                "sum": self.tool.last_stage_rollout(pixel_values, fusion="sum"),
+            }
+            head_maps = self.tool.last_stage_headmaps(pixel_values, layer_idx=-1)
 
-        # per-head maps
-        head_maps = self.tool.last_stage_headmaps(pixel_values, layer_idx=-1)
+        # --- grad rollout with autograd enabled ---
+        pixel_values.requires_grad_(True)
+        rollouts["grad"] = self.tool.last_stage_rollout(
+            pixel_values, fusion="grad", use_grad_for_target=True
+        )
+        pixel_values.requires_grad_(False)
 
         # prepare base image
         base = self._denorm_to_numpy(img_1x.squeeze(0))
