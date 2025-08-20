@@ -23,6 +23,7 @@ from losses import DistributionLoss
 from plot import TrainingPlots, ViTAttentionPlots
 import os
 
+
 def get_args_parser():
     parser = argparse.ArgumentParser(
         "DeiT training and evaluation script", add_help=False
@@ -417,9 +418,15 @@ def get_args_parser():
 
     # interpretability via attention rollouts
     parser.add_argument(
-        "--viz-attn",
+        "--attn-viz",
         action="store_true",
-        help="Save ViT attention & rollout visualizations on val images",
+        help="Enable attention rollout visualizations after evaluation.",
+    )
+    parser.add_argument(
+        "--attn-max-images",
+        default=8,
+        type=int,
+        help="Maximum number of images to visualize for attention rollout.",
     )
     parser.add_argument(
         "--viz-samples",
@@ -590,6 +597,10 @@ def main(args):
         attn_viz = ViTAttentionPlots(
             output_dir, mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]
         )
+
+    attn_max_images = None
+    if args.attn_max_images:
+        attn_max_images = args.attn_max_images
 
     max_accuracy = 0.0
     if args.current_best_model:
@@ -798,8 +809,9 @@ def main(args):
 
         # Final interpretability set on validation images
         if attn_viz is not None:
-            attn_viz.visualize_from_loader(model, data_loader_test, device, max_images=8)
-
+            attn_viz.visualize_from_loader(
+                model, data_loader_test, device, max_images=attn_max_images
+            )
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
