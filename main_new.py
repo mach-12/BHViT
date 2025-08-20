@@ -797,10 +797,9 @@ def main(args):
         plotter.save_summary(max_accuracy=max_accuracy, total_epochs=args.epochs)
 
         # Final interpretability set on validation images
-        if attn_viz is not None and args.viz_attn:
-            attn_viz.visualize_from_loader(
-                model, data_loader_val, device, max_images=args.viz_samples
-            )
+        if attn_viz is not None:
+            attn_viz.visualize_from_loader(model, data_loader_test, device, max_images=8)
+
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
