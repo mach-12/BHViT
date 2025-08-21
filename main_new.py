@@ -441,6 +441,12 @@ def get_args_parser():
         help="If >0, also visualize every N epochs (in addition to final epoch)",
     )
 
+    parser.add_argument(
+        "--eval-only",
+        action="store_true",
+        help="Only run evaluation on validation/test sets without training",
+    )
+
     return parser
 
 
@@ -604,7 +610,9 @@ def main(args):
 
     max_accuracy = 0.0
     if args.current_best_model:
-        best_model = torch.load(args.current_best_model, map_location="cpu")
+        best_model = torch.load(
+            args.current_best_model, map_location="cpu", weights_only=False
+        )
         if "model" in best_model:
             best_model = best_model["model"]
         state_dict = model_without_ddp.state_dict()
@@ -657,10 +665,10 @@ def main(args):
     if args.resume:
         if args.resume.startswith("https"):
             checkpoint = torch.hub.load_state_dict_from_url(
-                args.resume, map_location="cpu", check_hash=True
+                args.resume, map_location="cpu", check_hash=True, weights_only=False
             )
         else:
-            checkpoint = torch.load(args.resume, map_location="cpu")
+            checkpoint = torch.load(args.resume, map_location="cpu", weights_only=False)
         model_without_ddp.load_state_dict(checkpoint["model"])
         if (
             "optimizer" in checkpoint
@@ -681,63 +689,11 @@ def main(args):
             f"Accuracy of the checkpoint network on the {len(dataset_val)} val images: {val_stats['acc1']:.1f}%"
         )
 
-    print("Start training")
-    start_time = time.time()
-    for epoch in range(args.start_epoch, args.epochs):
-        if args.distributed:
-            data_loader_train.sampler.set_epoch(epoch)
+    print("Start training" if not args.eval_only else "Start evaluation")
 
-        if args.regularization_loss:
-            train_stats = train_one_epoch_L1(
-                model,
-                teacher_model,
-                criterion,
-                criterion2,
-                data_loader_train,
-                optimizer,
-                device,
-                epoch,
-                loss_scaler,
-                args.clip_grad,
-                model_ema,
-                mixup_fn,
-            )
-        else:
-            train_stats = train_one_epoch(
-                model,
-                teacher_model,
-                criterion,
-                criterion2,
-                data_loader_train,
-                optimizer,
-                device,
-                epoch,
-                loss_scaler,
-                args.clip_grad,
-                model_ema,
-                mixup_fn,
-            )
-
-        lr_scheduler.step(epoch)
-        if args.output_dir:
-            checkpoint_paths = [output_dir / "checkpoint.pth"]
-            for checkpoint_path in checkpoint_paths:
-                checkpoint_dict = {
-                    "model": model_without_ddp.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "lr_scheduler": lr_scheduler.state_dict(),
-                    "epoch": epoch,
-                    "scaler": loss_scaler.state_dict(),
-                    "args": args,
-                }
-                if args.model_ema:
-                    checkpoint_dict["model_ema"] = get_state_dict(model_ema)
-                utils.save_on_master(checkpoint_dict, checkpoint_path)
-
-        test_stats = evaluate(data_loader_val, model, device)
-        print(
-            f"Accuracy of the network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%"
-        )
+    if args.eval_only:
+        # Evaluation-only mode
+        print("Running evaluation only...")
 
         # Validation
         val_stats = evaluate(data_loader_val, model, device, split_name="Val")
@@ -751,13 +707,78 @@ def main(args):
                 f"Accuracy on {len(dataset_test)} test images: {test_stats['acc1']:.1f}%"
             )
 
-        # Track best on validation
-        if max_accuracy < val_stats["acc1"]:
-            max_accuracy = val_stats["acc1"]
+        # Generate plots and reports
+        if plotter is not None:
+            # Validation artifacts
+            plotter.save_confusion_and_report(
+                model, data_loader_val, device, normalize="true", file_prefix="val"
+            )
+
+            # Test artifacts (only if you have a test loader)
+            if data_loader_test is not None:
+                plotter.save_confusion_and_report(
+                    model,
+                    data_loader_test,
+                    device,
+                    normalize="true",
+                    file_prefix="test",
+                )
+
+            plotter.save_summary(max_accuracy=val_stats["acc1"], total_epochs=0)
+
+        # Attention visualizations
+        if attn_viz is not None and args.attn_viz:
+            # Use test set if available, otherwise validation set
+            viz_loader = (
+                data_loader_test if data_loader_test is not None else data_loader_val
+            )
+            attn_viz.visualize_from_loader(
+                model, viz_loader, device, max_images=attn_max_images
+            )
+
+        print(f"Evaluation completed. Final accuracy: {val_stats['acc1']:.2f}%")
+    else:
+        start_time = time.time()
+        for epoch in range(args.start_epoch, args.epochs):
+            if args.distributed:
+                data_loader_train.sampler.set_epoch(epoch)
+
+            if args.regularization_loss:
+                train_stats = train_one_epoch_L1(
+                    model,
+                    teacher_model,
+                    criterion,
+                    criterion2,
+                    data_loader_train,
+                    optimizer,
+                    device,
+                    epoch,
+                    loss_scaler,
+                    args.clip_grad,
+                    model_ema,
+                    mixup_fn,
+                )
+            else:
+                train_stats = train_one_epoch(
+                    model,
+                    teacher_model,
+                    criterion,
+                    criterion2,
+                    data_loader_train,
+                    optimizer,
+                    device,
+                    epoch,
+                    loss_scaler,
+                    args.clip_grad,
+                    model_ema,
+                    mixup_fn,
+                )
+
+            lr_scheduler.step(epoch)
             if args.output_dir:
-                best_paths = [output_dir / "best.pth"]
-                for best_path in best_paths:
-                    best_dict = {
+                checkpoint_paths = [output_dir / "checkpoint.pth"]
+                for checkpoint_path in checkpoint_paths:
+                    checkpoint_dict = {
                         "model": model_without_ddp.state_dict(),
                         "optimizer": optimizer.state_dict(),
                         "lr_scheduler": lr_scheduler.state_dict(),
@@ -766,56 +787,106 @@ def main(args):
                         "args": args,
                     }
                     if args.model_ema:
-                        best_dict["model_ema"] = get_state_dict(model_ema)
-                    utils.save_on_master(best_dict, best_path)
+                        checkpoint_dict["model_ema"] = get_state_dict(model_ema)
+                    utils.save_on_master(checkpoint_dict, checkpoint_path)
 
-        print(f"Max accuracy: {max_accuracy:.2f}%")
+            # Validation
+            val_stats = evaluate(data_loader_val, model, device, split_name="Val")
+            print(
+                f"Accuracy on {len(dataset_val)} val images: {val_stats['acc1']:.1f}%"
+            )
 
-        log_stats = {
-            **{f"train_{k}": v for k, v in train_stats.items()},
-            **{f"val_{k}": v for k, v in val_stats.items()},
-            **(
-                {f"test_{k}": v for k, v in test_stats.items()}
-                if test_stats is not None
-                else {}
-            ),
-            "epoch": epoch,
-            "n_parameters": n_parameters,
-        }
+            # Optional Test (if available)
+            test_stats = None
+            if data_loader_test is not None:
+                test_stats = evaluate(
+                    data_loader_test, model, device, split_name="Test"
+                )
+                print(
+                    f"Accuracy on {len(dataset_test)} test images: {test_stats['acc1']:.1f}%"
+                )
 
-        if args.output_dir and utils.is_main_process():
-            with (output_dir / "log.txt").open("a") as f:
-                f.write(json.dumps(log_stats) + "\n")
+            # Update plots every epoch
+            if plotter is not None:
+                plotter.update_epoch(train_stats, val_stats, epoch, test_stats)
 
-        # For logging every epoch
-        # if plotter is not None and (epoch + 1) % args.epochs == 0:
-        #     plotter.save_confusion_and_report(model, data_loader_val, device, normalize="true")
+            # Track best on validation
+            if max_accuracy < val_stats["acc1"]:
+                max_accuracy = val_stats["acc1"]
+                if args.output_dir:
+                    best_paths = [output_dir / "best.pth"]
+                    for best_path in best_paths:
+                        best_dict = {
+                            "model": model_without_ddp.state_dict(),
+                            "optimizer": optimizer.state_dict(),
+                            "lr_scheduler": lr_scheduler.state_dict(),
+                            "epoch": epoch,
+                            "scaler": loss_scaler.state_dict(),
+                            "args": args,
+                        }
+                        if args.model_ema:
+                            best_dict["model_ema"] = get_state_dict(model_ema)
+                        utils.save_on_master(best_dict, best_path)
 
-    # final confusion matrix + classification report + summary
-    if plotter is not None:
-        # uses the current (final) model weights
-        # Validation artifacts
-        plotter.save_confusion_and_report(
-            model, data_loader_val, device, normalize="true", file_prefix="val"
-        )
+            print(f"Max accuracy: {max_accuracy:.2f}%")
 
-        # Test artifacts (only if you have a test loader)
-        if data_loader_test is not None:
+            log_stats = {
+                **{f"train_{k}": v for k, v in train_stats.items()},
+                **{f"val_{k}": v for k, v in val_stats.items()},
+                **(
+                    {f"test_{k}": v for k, v in test_stats.items()}
+                    if test_stats is not None
+                    else {}
+                ),
+                "epoch": epoch,
+                "n_parameters": n_parameters,
+            }
+
+            if args.output_dir and utils.is_main_process():
+                with (output_dir / "log.txt").open("a") as f:
+                    f.write(json.dumps(log_stats) + "\n")
+
+            # For logging every epoch
+            if plotter is not None:
+                plotter.update_epoch(train_stats, val_stats, epoch, test_stats)
+
+            # if plotter is not None and (epoch + 1) % args.epochs == 0:
+            #     plotter.save_confusion_and_report(model, data_loader_val, device, normalize="true")
+
+        # final confusion matrix + classification report + summary
+        if plotter is not None:
+            # uses the current (final) model weights
+            # Validation artifacts
             plotter.save_confusion_and_report(
-                model, data_loader_test, device, normalize="true", file_prefix="test"
+                model, data_loader_val, device, normalize="true", file_prefix="val"
             )
 
-        plotter.save_summary(max_accuracy=max_accuracy, total_epochs=args.epochs)
+            # Test artifacts (only if you have a test loader)
+            if data_loader_test is not None:
+                plotter.save_confusion_and_report(
+                    model,
+                    data_loader_test,
+                    device,
+                    normalize="true",
+                    file_prefix="test",
+                )
 
-        # Final interpretability set on validation images
-        if attn_viz is not None:
-            attn_viz.visualize_from_loader(
-                model, data_loader_test, device, max_images=attn_max_images
-            )
+            plotter.save_summary(max_accuracy=max_accuracy, total_epochs=args.epochs)
 
-    total_time = time.time() - start_time
-    total_time_str = str(datetime.timedelta(seconds=int(total_time)))
-    print("Training time {}".format(total_time_str))
+            # Final interpretability set on validation images
+            if attn_viz is not None and args.attn_viz:
+                viz_loader = (
+                    data_loader_test
+                    if data_loader_test is not None
+                    else data_loader_val
+                )
+                attn_viz.visualize_from_loader(
+                    model, viz_loader, device, max_images=attn_max_images
+                )
+
+        total_time = time.time() - start_time
+        total_time_str = str(datetime.timedelta(seconds=int(total_time)))
+        print("Training time {}".format(total_time_str))
 
 
 if __name__ == "__main__":
