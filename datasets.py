@@ -8,16 +8,64 @@ import torch
 from torchvision import datasets, transforms
 from torchvision.datasets.folder import ImageFolder, default_loader
 
-from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
+from timm.data.constants import (
+    IMAGENET_DEFAULT_MEAN,
+    IMAGENET_DEFAULT_STD,
+)
 from timm.data import create_transform
 
 
-from PIL import Image, ImageFile
+from PIL import Image, ImageFile, ImageFilter
 from torchvision import transforms
 from torchvision.datasets import ImageFolder
+import random
 
 # TODO: Fix data corruption in the dataset instead of this hack
 ImageFile.LOAD_TRUNCATED_IMAGES = True
+
+# Define constants for cervical dataset
+CERVICAL_DEFAULT_MEAN = (0.4765, 0.3608, 0.3890)
+CERVICAL_DEFAULT_STD = (0.2312, 0.2192, 0.2185)
+
+
+# Image transformations for cervical dataset
+class RandomApplyFilter(transforms.RandomApply):
+    """Apply a PIL filter randomly with a given probability."""
+
+    def __init__(self, filter_fn, p=0.5):
+        super().__init__([lambda img: img.filter(filter_fn)], p=p)
+
+
+def get_cervical_transform(
+    input_size, mean=CERVICAL_DEFAULT_MEAN, std=CERVICAL_DEFAULT_STD
+):
+    filters = [
+        (ImageFilter.SHARPEN, 0.5),
+        (ImageFilter.EMBOSS, 0.5),
+        (ImageFilter.FIND_EDGES, 0.5),
+    ]
+
+    transform_list = [
+        transforms.RandomResizedCrop(input_size, scale=(0.08, 1.0)),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomVerticalFlip(),
+    ]
+
+    # Add random filters
+    transform_list.extend(RandomApplyFilter(filter_fn, p) for filter_fn, p in filters)
+
+    # Add final transformations
+    transform_list.extend(
+        [
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std),
+        ]
+    )
+
+    return transforms.Compose(transform_list)
+
+
+# Usage example
 
 
 class CervicalCancerDataset(ImageFolder):
@@ -148,6 +196,11 @@ def build_transform(is_train, args):
                 ]
             )
             return transform
+
+        elif args.aa == "cervical":
+            transform = get_cervical_transform(input_size=args.input_size)
+            return transform
+
         else:
             # this should always dispatch to transforms_imagenet_train
             transform = create_transform(
