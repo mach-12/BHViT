@@ -596,7 +596,13 @@ def main(args):
     # create plotter (rank-0 only)
     plotter = None
     if args.output_dir and utils.is_main_process():
-        plotter = TrainingPlots(output_dir)
+        class_names = None
+        if hasattr(dataset_val, "classes"):
+            class_names = dataset_val.classes
+        elif hasattr(dataset_val, "class_to_idx"):
+            class_names = list(dataset_val.class_to_idx.keys())
+
+        plotter = TrainingPlots(output_dir, class_names=class_names)
 
     attn_viz = None
     if args.output_dir and utils.is_main_process():
@@ -805,10 +811,6 @@ def main(args):
                 print(
                     f"Accuracy on {len(dataset_test)} test images: {test_stats['acc1']:.1f}%"
                 )
-
-            # Update plots every epoch
-            if plotter is not None:
-                plotter.update_epoch(train_stats, val_stats, epoch, test_stats)
 
             # Track best on validation
             if max_accuracy < val_stats["acc1"]:
