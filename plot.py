@@ -370,102 +370,103 @@ class TrainingPlots:
             for r in rows:
                 writer.writerow(r)
 
+    def _plot_loss_acc(self) -> None:
+        """Plot separate loss and accuracy graphs."""
+        epochs = self.history["epoch"]
+        if not epochs:
+            return
 
-def _plot_loss_acc(self) -> None:
-    """Plot separate loss and accuracy graphs."""
-    epochs = self.history["epoch"]
-    if not epochs:
-        return
+        # Create separate plots for loss and accuracy
+        self._plot_loss()
+        self._plot_accuracy()
 
-    # Create separate plots for loss and accuracy
-    self._plot_loss()
-    self._plot_accuracy()
+    def _plot_loss(self) -> None:
+        """Plot loss vs epoch for train, val, test."""
+        epochs = self.history["epoch"]
+        if not epochs:
+            return
 
+        fig = plt.figure(figsize=(10, 6), dpi=150)
 
-def _plot_loss(self) -> None:
-    """Plot loss vs epoch for train, val, test."""
-    epochs = self.history["epoch"]
-    if not epochs:
-        return
+        # Plot loss curves
+        if not all(math.isnan(x) for x in self.history["train_loss"]):
+            plt.plot(
+                epochs,
+                self.history["train_loss"],
+                label="Train Loss",
+                color="blue",
+                linewidth=2,
+            )
+        if not all(math.isnan(x) for x in self.history["val_loss"]):
+            plt.plot(
+                epochs,
+                self.history["val_loss"],
+                label="Val Loss",
+                color="red",
+                linewidth=2,
+            )
+        if not all(math.isnan(x) for x in self.history["test_loss"]):
+            plt.plot(
+                epochs,
+                self.history["test_loss"],
+                label="Test Loss",
+                color="green",
+                linewidth=2,
+            )
 
-    fig = plt.figure(figsize=(10, 6), dpi=150)
+        plt.xlabel("Epoch")
+        plt.ylabel("Loss")
+        plt.title("Loss vs Epoch")
+        plt.legend()
+        plt.grid(True, alpha=0.3)
 
-    # Plot loss curves
-    if not all(math.isnan(x) for x in self.history["train_loss"]):
-        plt.plot(
-            epochs,
-            self.history["train_loss"],
-            label="Train Loss",
-            color="blue",
-            linewidth=2,
-        )
-    if not all(math.isnan(x) for x in self.history["val_loss"]):
-        plt.plot(
-            epochs, self.history["val_loss"], label="Val Loss", color="red", linewidth=2
-        )
-    if not all(math.isnan(x) for x in self.history["test_loss"]):
-        plt.plot(
-            epochs,
-            self.history["test_loss"],
-            label="Test Loss",
-            color="green",
-            linewidth=2,
-        )
+        fig.tight_layout()
+        fig.savefig(self.img_dir / "loss_vs_epoch.png")
+        plt.close(fig)
 
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.title("Loss vs Epoch")
-    plt.legend()
-    plt.grid(True, alpha=0.3)
+    def _plot_accuracy(self) -> None:
+        """Plot accuracy vs epoch for train, val, test."""
+        epochs = self.history["epoch"]
+        if not epochs:
+            return
 
-    fig.tight_layout()
-    fig.savefig(self.img_dir / "loss_vs_epoch.png")
-    plt.close(fig)
+        fig = plt.figure(figsize=(10, 6), dpi=150)
 
+        # Plot accuracy curves
+        if not all(math.isnan(x) for x in self.history["train_acc1"]):
+            plt.plot(
+                epochs,
+                self.history["train_acc1"],
+                label="Train Acc@1",
+                color="blue",
+                linewidth=2,
+            )
+        if not all(math.isnan(x) for x in self.history["val_acc1"]):
+            plt.plot(
+                epochs,
+                self.history["val_acc1"],
+                label="Val Acc@1",
+                color="red",
+                linewidth=2,
+            )
+        if not all(math.isnan(x) for x in self.history["test_acc1"]):
+            plt.plot(
+                epochs,
+                self.history["test_acc1"],
+                label="Test Acc@1",
+                color="green",
+                linewidth=2,
+            )
 
-def _plot_accuracy(self) -> None:
-    """Plot accuracy vs epoch for train, val, test."""
-    epochs = self.history["epoch"]
-    if not epochs:
-        return
+        plt.xlabel("Epoch")
+        plt.ylabel("Accuracy (%)")
+        plt.title("Accuracy vs Epoch")
+        plt.legend()
+        plt.grid(True, alpha=0.3)
 
-    fig = plt.figure(figsize=(10, 6), dpi=150)
-
-    # Plot accuracy curves
-    if not all(math.isnan(x) for x in self.history["train_acc1"]):
-        plt.plot(
-            epochs,
-            self.history["train_acc1"],
-            label="Train Acc@1",
-            color="blue",
-            linewidth=2,
-        )
-    if not all(math.isnan(x) for x in self.history["val_acc1"]):
-        plt.plot(
-            epochs,
-            self.history["val_acc1"],
-            label="Val Acc@1",
-            color="red",
-            linewidth=2,
-        )
-    if not all(math.isnan(x) for x in self.history["test_acc1"]):
-        plt.plot(
-            epochs,
-            self.history["test_acc1"],
-            label="Test Acc@1",
-            color="green",
-            linewidth=2,
-        )
-
-    plt.xlabel("Epoch")
-    plt.ylabel("Accuracy (%)")
-    plt.title("Accuracy vs Epoch")
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-
-    fig.tight_layout()
-    fig.savefig(self.img_dir / "accuracy_vs_epoch.png")
-    plt.close(fig)
+        fig.tight_layout()
+        fig.savefig(self.img_dir / "accuracy_vs_epoch.png")
+        plt.close(fig)
 
     def _plot_confusion_matrix(
         self,
