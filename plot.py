@@ -605,130 +605,130 @@ class TrainingPlots:
         y_score = np.concatenate(all_s) if all_s else np.zeros((0, 0), dtype=np.float32)
         return y_true, y_score
 
-        def _save_roc_auc(
-            self,
-            model: torch.nn.Module,
-            data_loader: torch.utils.data.DataLoader,
-            device: torch.device,
-            labels: List[int],
-            class_names: List[str],
-            file_prefix: str = "",
-        ) -> None:
-            """
-            Compute one-vs-rest ROC curves for each class and micro/macro averages.
-            Saves:
-                plots/<prefix_>roc_auc.png
-                metrics/<prefix_>roc_auc.json
-            """
-            try:
-                from sklearn.preprocessing import label_binarize
-                from sklearn.metrics import roc_curve, auc, roc_auc_score
-            except Exception as e:
-                raise ImportError(
-                    "scikit-learn is required for ROC–AUC (pip install scikit-learn)"
-                ) from e
+    def _save_roc_auc(
+        self,
+        model: torch.nn.Module,
+        data_loader: torch.utils.data.DataLoader,
+        device: torch.device,
+        labels: List[int],
+        class_names: List[str],
+        file_prefix: str = "",
+    ) -> None:
+        """
+        Compute one-vs-rest ROC curves for each class and micro/macro averages.
+        Saves:
+            plots/<prefix_>roc_auc.png
+            metrics/<prefix_>roc_auc.json
+        """
+        try:
+            from sklearn.preprocessing import label_binarize
+            from sklearn.metrics import roc_curve, auc, roc_auc_score
+        except Exception as e:
+            raise ImportError(
+                "scikit-learn is required for ROC–AUC (pip install scikit-learn)"
+            ) from e
 
-            y_true, y_score = self._collect_probas(model, data_loader, device)
-            if y_true.size == 0 or y_score.size == 0:
-                return  # nothing to do
+        y_true, y_score = self._collect_probas(model, data_loader, device)
+        if y_true.size == 0 or y_score.size == 0:
+            return  # nothing to do
 
-            n_classes = y_score.shape[1]
-            # Safety: ensure names align
-            if len(class_names) != n_classes:
-                class_names = [str(i) for i in range(n_classes)]
+        n_classes = y_score.shape[1]
+        # Safety: ensure names align
+        if len(class_names) != n_classes:
+            class_names = [str(i) for i in range(n_classes)]
 
-            # Binarize ground-truth for OvR
-            Y = label_binarize(y_true, classes=labels)  # (N, C)
-            if Y.shape[1] != n_classes:
-                # If labels were inferred smaller, expand to match y_score
-                # (shouldn't happen with labels derived above, but guard anyway)
-                full = np.zeros((Y.shape[0], n_classes), dtype=Y.dtype)
-                full[:, : Y.shape[1]] = Y
-                Y = full
+        # Binarize ground-truth for OvR
+        Y = label_binarize(y_true, classes=labels)  # (N, C)
+        if Y.shape[1] != n_classes:
+            # If labels were inferred smaller, expand to match y_score
+            # (shouldn't happen with labels derived above, but guard anyway)
+            full = np.zeros((Y.shape[0], n_classes), dtype=Y.dtype)
+            full[:, : Y.shape[1]] = Y
+            Y = full
 
-            fpr: Dict[Any, np.ndarray] = {}
-            tpr: Dict[Any, np.ndarray] = {}
-            roc_auc: Dict[str, Optional[float]] = {}
-            valid_cls: List[int] = []
+        fpr: Dict[Any, np.ndarray] = {}
+        tpr: Dict[Any, np.ndarray] = {}
+        roc_auc: Dict[str, Optional[float]] = {}
+        valid_cls: List[int] = []
 
-            # Per-class curves
-            for i in range(n_classes):
-                pos = Y[:, i].sum()
-                neg = (1 - Y[:, i]).sum()
-                if pos > 0 and neg > 0:
-                    fpr[i], tpr[i], _ = roc_curve(Y[:, i], y_score[:, i])
-                    roc_auc[class_names[i]] = float(auc(fpr[i], tpr[i]))
-                    valid_cls.append(i)
-                else:
-                    # Not enough samples to compute ROC for this class
-                    roc_auc[class_names[i]] = None
-
-            # Micro-average
-            if Y.sum() > 0 and (Y.size - Y.sum()) > 0:
-                fpr["micro"], tpr["micro"], _ = roc_curve(Y.ravel(), y_score.ravel())
-                roc_auc["micro"] = float(auc(fpr["micro"], tpr["micro"]))
+        # Per-class curves
+        for i in range(n_classes):
+            pos = Y[:, i].sum()
+            neg = (1 - Y[:, i]).sum()
+            if pos > 0 and neg > 0:
+                fpr[i], tpr[i], _ = roc_curve(Y[:, i], y_score[:, i])
+                roc_auc[class_names[i]] = float(auc(fpr[i], tpr[i]))
+                valid_cls.append(i)
             else:
-                roc_auc["micro"] = None
+                # Not enough samples to compute ROC for this class
+                roc_auc[class_names[i]] = None
 
-            # Macro-average (mean TPR at merged FPR)
-            if valid_cls:
-                all_fpr = np.unique(np.concatenate([fpr[i] for i in valid_cls]))
-                mean_tpr = np.zeros_like(all_fpr)
-                for i in valid_cls:
-                    mean_tpr += np.interp(all_fpr, fpr[i], tpr[i])
-                mean_tpr /= len(valid_cls)
-                roc_auc["macro"] = float(auc(all_fpr, mean_tpr))
-            else:
-                roc_auc["macro"] = None
+        # Micro-average
+        if Y.sum() > 0 and (Y.size - Y.sum()) > 0:
+            fpr["micro"], tpr["micro"], _ = roc_curve(Y.ravel(), y_score.ravel())
+            roc_auc["micro"] = float(auc(fpr["micro"], tpr["micro"]))
+        else:
+            roc_auc["micro"] = None
 
-            # --- Plot ---
-            size = 8
-            fig = plt.figure(figsize=(size, 6), dpi=150)
-            # Per-class lines
-            for i in range(n_classes):
-                if i in fpr:
-                    plt.plot(
-                        fpr[i],
-                        tpr[i],
-                        lw=2,
-                        label=f"{class_names[i]} (AUC={roc_auc[class_names[i]]:.3f})",
-                    )
-            # Micro/macro if available
-            if "micro" in fpr:
+        # Macro-average (mean TPR at merged FPR)
+        if valid_cls:
+            all_fpr = np.unique(np.concatenate([fpr[i] for i in valid_cls]))
+            mean_tpr = np.zeros_like(all_fpr)
+            for i in valid_cls:
+                mean_tpr += np.interp(all_fpr, fpr[i], tpr[i])
+            mean_tpr /= len(valid_cls)
+            roc_auc["macro"] = float(auc(all_fpr, mean_tpr))
+        else:
+            roc_auc["macro"] = None
+
+        # --- Plot ---
+        size = 8
+        fig = plt.figure(figsize=(size, 6), dpi=150)
+        # Per-class lines
+        for i in range(n_classes):
+            if i in fpr:
                 plt.plot(
-                    fpr["micro"],
-                    tpr["micro"],
+                    fpr[i],
+                    tpr[i],
                     lw=2,
-                    linestyle="--",
-                    label=f"micro (AUC={roc_auc['micro']:.3f})",
+                    label=f"{class_names[i]} (AUC={roc_auc[class_names[i]]:.3f})",
                 )
-            if valid_cls:
-                plt.plot(
-                    all_fpr,
-                    mean_tpr,
-                    lw=2,
-                    linestyle="--",
-                    label=f"macro (AUC={roc_auc['macro']:.3f})",
-                )
-
-            # Chance line
-            plt.plot([0, 1], [0, 1], lw=1, linestyle=":", label="chance")
-            plt.xlim([0.0, 1.0])
-            plt.ylim([0.0, 1.05])
-            plt.xlabel("False Positive Rate")
-            plt.ylabel("True Positive Rate")
-            plt.title("ROC Curves (one-vs-rest)")
-            plt.legend(loc="lower right", fontsize=8)
-            fig.tight_layout()
-            stem = f"{file_prefix}_" if file_prefix else ""
-            fig.savefig(self.img_dir / f"{stem}roc_auc.png")
-            plt.close(fig)
-
-            # --- Save metrics JSON ---
-            # Convert None to JSON null
-            (self.metrics_dir / f"{stem}roc_auc.json").write_text(
-                json.dumps(roc_auc, indent=2)
+        # Micro/macro if available
+        if "micro" in fpr:
+            plt.plot(
+                fpr["micro"],
+                tpr["micro"],
+                lw=2,
+                linestyle="--",
+                label=f"micro (AUC={roc_auc['micro']:.3f})",
             )
+        if valid_cls:
+            plt.plot(
+                all_fpr,
+                mean_tpr,
+                lw=2,
+                linestyle="--",
+                label=f"macro (AUC={roc_auc['macro']:.3f})",
+            )
+
+        # Chance line
+        plt.plot([0, 1], [0, 1], lw=1, linestyle=":", label="chance")
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel("False Positive Rate")
+        plt.ylabel("True Positive Rate")
+        plt.title("ROC Curves (one-vs-rest)")
+        plt.legend(loc="lower right", fontsize=8)
+        fig.tight_layout()
+        stem = f"{file_prefix}_" if file_prefix else ""
+        fig.savefig(self.img_dir / f"{stem}roc_auc.png")
+        plt.close(fig)
+
+        # --- Save metrics JSON ---
+        # Convert None to JSON null
+        (self.metrics_dir / f"{stem}roc_auc.json").write_text(
+            json.dumps(roc_auc, indent=2)
+        )
 
     def _dump_predictions_csv(
         self,
