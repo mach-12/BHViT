@@ -39,6 +39,10 @@ from transformer.explanibility import BHViTAttribution
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+# Define constants for cervical dataset
+CERVICAL_DEFAULT_MEAN = [0.6776, 0.4484, 0.4917]
+CERVICAL_DEFAULT_STD = [0.1164, 0.1472, 0.1421]
+
 
 class ViTAttentionPlots:
     """
@@ -46,14 +50,21 @@ class ViTAttentionPlots:
     Saves results under <output_dir>/interpret/.
     """
 
-    def __init__(self, out_dir: Path, mean=None, std=None):
+    def __init__(
+        self,
+        out_dir: Path,
+        mean=None,
+        std=None,
+        overlay_alpha: float = 0.35,
+        grid_cols: int = 3,
+    ):
         self.out_dir = Path(out_dir)
         self.viz_dir = self.out_dir / "interpret"
         self.viz_dir.mkdir(parents=True, exist_ok=True)
 
         # Defaults to ImageNet stats; override if your dataset differs
-        self.mean = mean or [0.485, 0.456, 0.406]
-        self.std = std or [0.229, 0.224, 0.225]
+        self.mean = mean or CERVICAL_DEFAULT_MEAN
+        self.std = std or CERVICAL_DEFAULT_STD
 
         # Attribution tool (lazy init per model)
         self.tool: BHViTAttribution | None = None
@@ -145,6 +156,15 @@ class ViTAttentionPlots:
                 title=f"Rollout ({fusion})",
             )
 
+        # also save a single composite grid: original + all rollouts
+        self._save_rollout_grid(
+            base_img_hwc=base,
+            rollout_maps={
+                fusion: self._resize_to_image(heat[0].detach().cpu().numpy(), base)
+                for fusion, heat in rollouts.items()
+            },
+            fpath=self.viz_dir / f"sample_{index:03d}_rollouts_grid.png",
+        )
         # save per-head maps
         fig, axes = plt.subplots(
             1, min(4, head_maps.shape[1]), figsize=(12, 4), dpi=150
@@ -185,10 +205,53 @@ class ViTAttentionPlots:
     ) -> None:
         fig = plt.figure(figsize=(6, 6), dpi=150)
         plt.imshow(base_img_hwc)
-        plt.imshow(heat_hw, alpha=0.6, cmap="jet")
+        # CHANGED: use configurable, slightly fainter alpha
+        plt.imshow(heat_hw, alpha=self.overlay_alpha, cmap="jet")
         plt.axis("off")
         if title:
             plt.title(title)
+        fig.tight_layout()
+        fig.savefig(fpath)
+        plt.close(fig)
+
+    # composite grid saver
+    def _save_rollout_grid(
+        self,
+        base_img_hwc: np.ndarray,
+        rollout_maps: Dict[str, np.ndarray],  # key=fusion name, value=H×W float map
+        fpath: Path,
+    ) -> None:
+        """
+        Saves a grid containing the original image and all rollout overlays.
+        """
+        titles = ["Image"] + [f"Rollout ({k})" for k in rollout_maps.keys()]
+        n_panels = 1 + len(rollout_maps)
+
+        cols = min(self.grid_cols, n_panels)
+        rows = int(math.ceil(n_panels / cols))
+
+        fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 4 * rows), dpi=150)
+        if not isinstance(axes, np.ndarray):
+            axes = np.array([axes])
+        axes = axes.flatten()
+
+        # 1) Original image
+        axes[0].imshow(base_img_hwc)
+        axes[0].set_title(titles[0])
+        axes[0].axis("off")
+
+        # 2) Overlays
+        for i, (name, heat) in enumerate(rollout_maps.items(), start=1):
+            ax = axes[i]
+            ax.imshow(base_img_hwc)
+            ax.imshow(heat, alpha=self.overlay_alpha, cmap="jet")
+            ax.set_title(f"Rollout ({name})")
+            ax.axis("off")
+
+        # Hide any unused axes
+        for j in range(n_panels, len(axes)):
+            axes[j].axis("off")
+
         fig.tight_layout()
         fig.savefig(fpath)
         plt.close(fig)

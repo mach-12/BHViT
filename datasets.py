@@ -24,8 +24,8 @@ import random
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 # Define constants for cervical dataset
-CERVICAL_DEFAULT_MEAN = (0.4765, 0.3608, 0.3890)
-CERVICAL_DEFAULT_STD = (0.2312, 0.2192, 0.2185)
+CERVICAL_DEFAULT_MEAN = (0.6776, 0.4484, 0.4917)
+CERVICAL_DEFAULT_STD = (0.1164, 0.1472, 0.1421)
 
 
 # Image transformations for cervical dataset
