@@ -46,7 +46,8 @@ def get_cervical_transform(
     ]
 
     transform_list = [
-        transforms.RandomResizedCrop(input_size, scale=(0.08, 1.0)),
+        transforms.Resize(input_size, interpolation=Image.BILINEAR),
+        transforms.CenterCrop(input_size),
         transforms.RandomHorizontalFlip(),
         transforms.RandomVerticalFlip(),
     ]
