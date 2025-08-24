@@ -62,6 +62,7 @@ class ViTAttentionPlots:
         self.viz_dir = self.out_dir / "interpret"
         self.viz_dir.mkdir(parents=True, exist_ok=True)
         self.overlay_alpha = overlay_alpha
+        self.grid_cols = grid_cols
 
         # Defaults to ImageNet stats; override if your dataset differs
         self.mean = mean or CERVICAL_DEFAULT_MEAN
