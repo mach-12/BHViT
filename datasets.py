@@ -39,31 +39,19 @@ class RandomApplyFilter(transforms.RandomApply):
 def get_cervical_transform(
     input_size, mean=CERVICAL_DEFAULT_MEAN, std=CERVICAL_DEFAULT_STD
 ):
-    filters = [
-        (ImageFilter.SHARPEN, 0.5),
-        (ImageFilter.EMBOSS, 0.5),
-        (ImageFilter.FIND_EDGES, 0.5),
-    ]
-
-    transform_list = [
-        transforms.Resize(input_size, interpolation=Image.BILINEAR),
-        transforms.CenterCrop(input_size),
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomVerticalFlip(),
-    ]
-
-    # Add random filters
-    transform_list.extend(RandomApplyFilter(filter_fn, p) for filter_fn, p in filters)
-
-    # Add final transformations
-    transform_list.extend(
+    return transforms.Compose(
         [
+            transforms.RandomResizedCrop(
+                input_size, scale=(0.7, 1.0), ratio=(0.9, 1.1)
+            ),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomVerticalFlip(),
+            transforms.RandomRotation(10),  # small rotation
+            transforms.ColorJitter(0.1, 0.1, 0.1, 0.05),  # gentle
             transforms.ToTensor(),
             transforms.Normalize(mean, std),
         ]
     )
-
-    return transforms.Compose(transform_list)
 
 
 # Usage example
@@ -225,12 +213,17 @@ def build_transform(is_train, args):
     t = []
     if resize_im:
         size = int((256 / 224) * args.input_size)
-        t.append(
-            transforms.Resize(
-                size, interpolation=3
-            ),  # to maintain same ratio w.r.t. 224 images
-        )
+        t.append(transforms.Resize(size, interpolation=3))
         t.append(transforms.CenterCrop(args.input_size))
+
+    t.append(transforms.ToTensor())
+
+    if args.data_set == "CERVICAL":
+        t.append(transforms.Normalize(CERVICAL_DEFAULT_MEAN, CERVICAL_DEFAULT_STD))
+    else:
+        t.append(transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD))
+
+    return transforms.Compose(t)
 
     t.append(transforms.ToTensor())
     t.append(transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD))
