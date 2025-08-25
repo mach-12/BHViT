@@ -23,6 +23,8 @@ from losses import DistributionLoss
 from plot import TrainingPlots, ViTAttentionPlots
 import os
 
+from collections import Counter
+
 
 def get_args_parser():
     parser = argparse.ArgumentParser(
@@ -468,6 +470,17 @@ def main(args):
     dataset_train, args.nb_classes = build_dataset(is_train=True, args=args)
     dataset_val, _ = build_dataset(is_train=False, args=args)
 
+    targets = [s[1] for s in dataset_train.samples]
+    counts = Counter(targets)  # e.g., {0: n0, 1: n1, 2: n2}
+    num_classes = args.nb_classes
+
+    # inverse frequency (or use effective number of samples)
+    class_weights = torch.tensor(
+        [len(targets) / (num_classes * counts[i]) for i in range(num_classes)],
+        dtype=torch.float,
+        device=device,
+    )
+
     # optional test split (only for cervical cancer if /test exists)
     data_loader_test = None
     dataset_test = None
@@ -576,7 +589,9 @@ def main(args):
 
     lr_scheduler, _ = create_scheduler(args, optimizer)
 
-    criterion = LabelSmoothingCrossEntropy()
+    # Use weighted CE; turn OFF label smoothing when using class weights
+    criterion = torch.nn.CrossEntropyLoss(weight=class_weights)
+
     criterion2 = None
     if args.teacher_model and mixup_fn is not None:
         criterion = DistributionLoss()
