@@ -768,8 +768,8 @@ def main(args):
     else:
         start_time = time.time()
         for epoch in range(args.start_epoch, args.epochs):
-            if args.distributed:
-                data_loader_train.sampler.set_epoch(epoch)
+            # if args.distributed:
+            #     data_loader_train.sampler.set_epoch(epoch)
 
             if args.regularization_loss:
                 train_stats = train_one_epoch_L1(
