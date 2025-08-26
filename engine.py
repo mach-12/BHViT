@@ -321,24 +321,19 @@ def train_one_epoch(
 
         # if mixup_fn is not None:
         #     samples, targets = mixup_fn(samples, targets)
-
         with torch.cuda.amp.autocast():
-
             outputs = model(samples)
             hard_t = _hard_targets(targets)
             acc1, acc5 = accuracy(outputs.logits, hard_t, topk=(1, 5))
-            if teacher_model is not None and mixup_fn is not None:
+
+            if teacher_model is not None:
                 with torch.no_grad():
                     teacher_outputs = teacher_model(samples)
-                loss1 = criterion(outputs.logits, teacher_outputs)
-                loss2 = criterion2(outputs.logits, targets)
-                loss = 0.9 * loss1 + 0.1 * loss2
-
-            elif teacher_model is not None and mixup_fn is None:
-                with torch.no_grad():
-                    teacher_outputs = teacher_model(samples)
-                loss = criterion(outputs.logits, teacher_outputs)
-
+                # criterion: your DistributionLoss (KL with temperature)
+                # criterion2: CrossEntropyLoss (you already create it with class_weights)
+                distill_loss = criterion(outputs.logits, teacher_outputs)
+                ce_loss = criterion2(outputs.logits, targets) if criterion2 is not None else 0.0
+                loss = 0.9 * distill_loss + 0.1 * ce_loss
             else:
                 loss = criterion(outputs.logits, targets)
 

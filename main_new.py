@@ -672,7 +672,7 @@ def main(args):
         teacher_model = create_model(
             "deit_small_patch16_224",
             pretrained=True,
-            num_classes=1000,
+            num_classes=num_classes,
         )
         teacher_model.to(device)
         teacher_model.eval()
@@ -683,12 +683,14 @@ def main(args):
             )
             teacher_model_without_ddp = teacher_model.module
 
-        # best_teacher_model = torch.load(args.teacher_model_file, map_location='cpu')
-        # if 'model' in best_teacher_model:
-        #     best_teacher_model = best_teacher_model['model']
-        # teacher_model_without_ddp.load_state_dict(best_teacher_model)
-        # test_stats = evaluate(data_loader_val, teacher_model, device)
-        # print(f"Accuracy of the teacher network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%")
+        best_teacher_model = torch.load(args.teacher_model_file, map_location="cpu")
+        if "model" in best_teacher_model:
+            best_teacher_model = best_teacher_model["model"]
+        teacher_model_without_ddp.load_state_dict(best_teacher_model)
+        test_stats = evaluate(data_loader_test, model, device, split_name="Test")
+        print(
+            f"Accuracy of the teacher network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%"
+        )
 
     if args.resume:
         if args.resume.startswith("https"):
