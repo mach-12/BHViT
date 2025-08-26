@@ -260,13 +260,15 @@ class ViTAttentionPlots:
 
 
 class TrainingPlots:
-    def __init__(self, out_dir: Path, class_names: Optional[List[str]] = None) -> None:
+    def __init__(
+        self, out_dir: Path, class_names: Optional[List[str]], args: Dict = None
+    ) -> None:
         self.out_dir = Path(out_dir)
         self.img_dir = self.out_dir / "plots"
         self.metrics_dir = self.out_dir / "metrics"
+        self.args = args
         self.img_dir.mkdir(parents=True, exist_ok=True)
         self.metrics_dir.mkdir(parents=True, exist_ok=True)
-
         self.class_names = class_names  # may be None; will fallback to numeric labels
         self.history: Dict[str, List[float]] = {
             "epoch": [],
@@ -331,7 +333,7 @@ class TrainingPlots:
         # LR
         self.history["lr"].append(float(train_stats.get("lr", np.nan)))
 
-        self._dump_history()
+        self._dump_history_and_args()
         self._plot_loss_acc()
 
     @torch.inference_mode()
@@ -426,10 +428,13 @@ class TrainingPlots:
         (self.metrics_dir / "summary.json").write_text(json.dumps(summary, indent=2))
 
     # ---------- Internals ----------
-    def _dump_history(self) -> None:
+    def _dump_history_and_args(self) -> None:
         (self.metrics_dir / "history.json").write_text(
             json.dumps(self.history, indent=2)
         )
+
+        (self.out_dir / "train_args.json").write_text(json.dumps(self.args, indent=2))
+
         keys = [
             "epoch",
             "train_loss",
