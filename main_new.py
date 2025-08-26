@@ -434,7 +434,7 @@ def get_args_parser():
         "--viz-samples",
         type=int,
         default=8,
-        help="How many validation images to visualize",
+    help="How many validation images to visuaglize",
     )
     parser.add_argument(
         "--viz-every",
@@ -499,19 +499,25 @@ def main(args):
             drop_last=False,
         )
 
-    if True:  # args.distributed:
-        num_tasks = utils.get_world_size()
-        global_rank = utils.get_rank()
-        if args.repeated_aug:
-            sampler_train = RASampler(
-                dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
-            )
-        else:
-            sampler_train = torch.utils.data.DistributedSampler(
-                dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
-            )
+    if args.distributed and utils.get_world_size() > 1:
+        sampler_train = torch.utils.data.distributed.DistributedSampler(
+            dataset_train,
+            num_replicas=utils.get_world_size(),
+            rank=utils.get_rank(),
+            shuffle=True,
+        )
     else:
-        sampler_train = torch.utils.data.RandomSampler(dataset_train)
+        # Balanced sampling (fix)
+        import numpy as np
+        targets = np.array([s[1] for s in dataset_train.samples])
+        class_count = np.bincount(targets, minlength=args.nb_classes).astype(float)
+        inv_freq = 1.0 / np.maximum(class_count, 1.0)
+        sample_weights = inv_freq[targets]
+        sampler_train = torch.utils.data.WeightedRandomSampler(
+            weights=sample_weights,
+            num_samples=len(sample_weights),
+            replacement=True,
+        )
 
     data_loader_train = torch.utils.data.DataLoader(
         dataset_train,
@@ -590,21 +596,19 @@ def main(args):
     lr_scheduler, _ = create_scheduler(args, optimizer)
 
     # Use weighted CE; turn OFF label smoothing when using class weights
-    criterion = torch.nn.CrossEntropyLoss(weight=class_weights)
+    criterion, criterion2 = None, None
 
-    criterion2 = None
-    if args.teacher_model and mixup_fn is not None:
+    if args.teacher_model:
+        # Distillation: teacher logits + weighted CE for hard targets
         criterion = DistributionLoss()
-        criterion2 = torch.nn.CrossEntropyLoss()
-    elif args.teacher_model:
-        criterion = DistributionLoss()
+        criterion2 = torch.nn.CrossEntropyLoss(weight=class_weights)
     elif args.mixup > 0.0:
-        # smoothing is handled with mixup label transform
         criterion = SoftTargetCrossEntropy()
-    elif args.smoothing:
+    elif args.smoothing > 0.0:
         criterion = LabelSmoothingCrossEntropy(smoothing=args.smoothing)
     else:
-        criterion = torch.nn.CrossEntropyLoss()
+        # Default: weighted CE (bug fix here)
+        criterion = torch.nn.CrossEntropyLoss(weight=class_weights)
 
     output_dir = Path(args.output_dir)
 
@@ -617,7 +621,7 @@ def main(args):
         elif hasattr(dataset_val, "class_to_idx"):
             class_names = list(dataset_val.class_to_idx.keys())
 
-        plotter = TrainingPlots(output_dir, class_names=class_names)
+        plotter = TrainingPlots(output_dir, class_names=class_names, args=args)
 
     attn_viz = None
     if args.output_dir and utils.is_main_process():
