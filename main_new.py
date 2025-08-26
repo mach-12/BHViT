@@ -667,26 +667,30 @@ def main(args):
             #     attn_viz.visualize_from_loader(model, data_loader_val, device, max_images=args.viz_samples)
 
     teacher_model = None
-    # regnety_160,deit_small_patch16_224
     if args.teacher_model:
         teacher_model = create_model(
-            "deit_small_patch16_224",
+            args.teacher_model,
             pretrained=True,
             num_classes=num_classes,
         )
         teacher_model.to(device)
         teacher_model.eval()
         teacher_model_without_ddp = teacher_model
+
         if args.distributed:
             teacher_model = torch.nn.parallel.DistributedDataParallel(
                 teacher_model, device_ids=[args.gpu]
             )
             teacher_model_without_ddp = teacher_model.module
 
-        best_teacher_model = torch.load(args.teacher_model_file, map_location="cpu")
-        if "model" in best_teacher_model:
-            best_teacher_model = best_teacher_model["model"]
-        teacher_model_without_ddp.load_state_dict(best_teacher_model)
+        # Only load extra checkpoint if explicitly provided
+        if args.teacher_model_file and os.path.isfile(args.teacher_model_file):
+            print(f"Loading teacher checkpoint from {args.teacher_model_file}")
+            best_teacher_model = torch.load(args.teacher_model_file, map_location="cpu")
+            if "model" in best_teacher_model:
+                best_teacher_model = best_teacher_model["model"]
+            teacher_model_without_ddp.load_state_dict(best_teacher_model)
+
         test_stats = evaluate(data_loader_test, model, device, split_name="Test")
         print(
             f"Accuracy of the teacher network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%"

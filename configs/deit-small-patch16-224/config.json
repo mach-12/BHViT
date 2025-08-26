@@ -20,7 +20,7 @@
     "Type_2": 1,
     "Type_3": 2
   },
-  "num_labels": 4,
+  "num_labels": 3,
   "layer_norm_eps": 1e-5,
   "model_type": "vit",
   "num_attention_heads": 6,
