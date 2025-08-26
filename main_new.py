@@ -624,7 +624,7 @@ def main(args):
         elif hasattr(dataset_val, "class_to_idx"):
             class_names = list(dataset_val.class_to_idx.keys())
 
-        plotter = TrainingPlots(output_dir, class_names=class_names, args=args)
+        plotter = TrainingPlots(output_dir, class_names=class_names, args=vars(args))
 
     attn_viz = None
     if args.output_dir and utils.is_main_process():
