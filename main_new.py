@@ -673,7 +673,6 @@ def main(args):
             "deit_small_patch16_224",
             pretrained=True,
             num_classes=num_classes,
-            checkpoint_path=args.teacher_model_file
         )
         teacher_model.to(device)
         teacher_model.eval()
