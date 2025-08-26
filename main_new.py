@@ -434,7 +434,7 @@ def get_args_parser():
         "--viz-samples",
         type=int,
         default=8,
-    help="How many validation images to visuaglize",
+        help="How many validation images to visuaglize",
     )
     parser.add_argument(
         "--viz-every",
@@ -453,6 +453,8 @@ def get_args_parser():
 
 
 def main(args):
+    import numpy as np
+
     utils.init_distributed_mode(args)
 
     print(args)
@@ -509,6 +511,7 @@ def main(args):
     else:
         # Balanced sampling (fix)
         import numpy as np
+
         targets = np.array([s[1] for s in dataset_train.samples])
         class_count = np.bincount(targets, minlength=args.nb_classes).astype(float)
         inv_freq = 1.0 / np.maximum(class_count, 1.0)
