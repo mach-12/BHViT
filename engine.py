@@ -65,7 +65,7 @@ def train_mix_epoch(
         if mixup_fn is not None:
             samples, targets = mixup_fn(samples, targets)
 
-        with torch.cuda.amp.autocast():
+        with torch.amp.autocast("cuda"):
 
             outputs = model(samples)
 
@@ -144,7 +144,7 @@ def train_one_epoch_L1(
         # if mixup_fn is not None:
         #     samples, targets = mixup_fn(samples, targets)
 
-        with torch.cuda.amp.autocast():
+        with torch.amp.autocast("cuda"):
             outputs = model(samples)
 
             hard_t = _hard_targets(targets)
@@ -246,7 +246,7 @@ def train_one_epoch2(
         samples = samples.to(device, non_blocking=True)
         targets = targets.to(device, non_blocking=True)
 
-        with torch.cuda.amp.autocast():
+        with torch.amp.autocast("cuda"):
             outputs = model(samples)
             hard_t = _hard_targets(targets)
             acc1, acc5 = accuracy(outputs.logits, hard_t, topk=(1, 5))
@@ -321,7 +321,7 @@ def train_one_epoch(
 
         # if mixup_fn is not None:
         #     samples, targets = mixup_fn(samples, targets)
-        with torch.cuda.amp.autocast():
+        with torch.amp.autocast("cuda"):
             outputs = model(samples)
             hard_t = _hard_targets(targets)
             acc1, acc5 = accuracy(outputs.logits, hard_t, topk=(1, 5))
@@ -397,7 +397,7 @@ def evaluate(data_loader, model, device, split_name="Val"):
         target = target.to(device, non_blocking=True)
 
         # compute output
-        with torch.cuda.amp.autocast():
+        with torch.amp.autocast("cuda"):
             output = model(images)
             loss = criterion(output.logits, target)
 
