@@ -90,16 +90,18 @@ class LayerScale(nn.Module):
 
 
 class BHViTEmbeddings(nn.Module):
-    """Construct Position and Patch Embeddings"""
+    """Construct Position and Patch Embeddings (robust to input/grid changes)"""
 
     def __init__(self, config: ViTConfig) -> None:
         super().__init__()
         self.config = config
         self.patch_embeddings = BHViTPatchEmbeddings(config)
-        self.num_patches = config.image_size // 4
+
+        # base grid used to *initialize* learned PE; can differ from runtime grid
+        base_side = int(getattr(config, "image_size", 224)) // 4
         C0 = config.hidden_size[0]
 
-        # optional: stain norm before patch conv
+        # optional: stain normalization before patch conv
         self.stain_norm = (
             StainInstanceNorm(
                 getattr(config, "num_channels", 3),
@@ -110,29 +112,53 @@ class BHViTEmbeddings(nn.Module):
             else nn.Identity()
         )
 
-        # positional embeddings: learned (default) or sine-cosine (toggle)
+        # interpolation mode for resizing learned PE (configurable, default bicubic)
+        self.pe_interpolate_mode = getattr(config, "pe_interpolate_mode", "bicubic")
+
+        # Positional embeddings: learned (default) or sine-cosine (toggle)
         if getattr(config, "use_sinusoidal_pe", False):
-            # buffer is materialized on first forward when device is known
+            # buffer is materialized on first forward when device/shape are known
             self.register_buffer("position_embeddings", None, persistent=False)
             self.use_sincos = True
         else:
             self.use_sincos = False
             self.position_embeddings = nn.Parameter(
-                torch.zeros(1, C0, self.num_patches, self.num_patches)
+                torch.zeros(1, C0, base_side, base_side)
             )
             trunc_normal_(self.position_embeddings, std=0.02)
 
+    def _get_sincos(self, C: int, Hp: int, Wp: int, device) -> torch.Tensor:
+        # returns [1, C, Hp, Wp]
+        pe = _get_2d_sincos_pos_embed(C, Hp, Wp, device)  # assumed to return [C, Hp, Wp]
+        return pe.unsqueeze(0)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: [B, 3, H, W] -> [B, C0, H/4, W/4]
         x = self.stain_norm(x)
-        x = self.patch_embeddings(x)  # [B, C0, H/4, W/4] with H/4 = W/4 = num_patches
+        x = self.patch_embeddings(x)
+
+        B, C0, Hp, Wp = x.shape
 
         if self.use_sincos:
-            if self.position_embeddings is None or self.position_embeddings.size(
-                -1
-            ) != x.size(-1):
-                pe = _get_2d_sincos_pos_embed(x.size(1), x.size(2), x.size(3), x.device)
-                self.position_embeddings = pe.unsqueeze(0)  # [1, C, Hp, Wp]
-        x = x + self.position_embeddings
+            # (re)build buffer if absent or size changed
+            if (self.position_embeddings is None) or (
+                self.position_embeddings.size(-2) != Hp
+                or self.position_embeddings.size(-1) != Wp
+            ):
+                pe = self._get_sincos(C0, Hp, Wp, x.device)
+                # update the registered buffer properly
+                self.register_buffer("position_embeddings", pe, persistent=False)
+            pos = self.position_embeddings
+        else:
+            # learned PE — do NOT mutate the Parameter; interpolate a local view if needed
+            pos = self.position_embeddings
+            if pos.size(-2) != Hp or pos.size(-1) != Wp:
+                pos = torch.nn.functional.interpolate(
+                    pos, size=(Hp, Wp), mode=self.pe_interpolate_mode, align_corners=False
+                )
+
+        # dtype/device safety
+        x = x + pos.to(dtype=x.dtype, device=x.device)
         return x
 
 
