@@ -191,7 +191,7 @@ class SyncBatchNormT(nn.SyncBatchNorm):
 def get_model(args, model_config, model_type, weight_bits, input_bits):
 
     config = ViTConfig.from_pretrained(model_config)
-
+    config.image_size = getattr(args, "input_size", config.image_size)
     config.drop_path = args.drop_path
     config.layer_norm_eps = 1e-5
     config.num_labels = args.nb_classes

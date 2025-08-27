@@ -1202,42 +1202,45 @@ class BHViTEncoder(nn.Module):
                 for i in range(config.num_hidden_layersB)
             ]
         )
-        self.gradient_checkpointing = False
+
+        # --- dynamic stage sizes (instead of 56/28/14) ---
+        S = config.image_size
+        s1, s2, s3 = S // 4, S // 8, S // 16
 
         if config.some_fp:
             self.patch_embed1 = PatchEmbed(
-                56,
+                s1,
                 in_dim=config.hidden_size[0],
                 out_dim=config.hidden_size[1],
                 config=config,
             )
             self.patch_embed2 = PatchEmbed(
-                28,
+                s2,
                 in_dim=config.hidden_size[1],
                 out_dim=config.hidden_size[2],
                 config=config,
             )
             self.patch_embed3 = PatchEmbed(
-                14,
+                s3,
                 in_dim=config.hidden_size[2],
                 out_dim=config.hidden_size[3],
                 config=config,
             )
         else:
             self.patch_embed1 = BinaryPatchEmbed(
-                56,
+                s1,
                 in_dim=config.hidden_size[0],
                 out_dim=config.hidden_size[1],
                 config=config,
             )
             self.patch_embed2 = BinaryPatchEmbed(
-                28,
+                s2,
                 in_dim=config.hidden_size[1],
                 out_dim=config.hidden_size[2],
                 config=config,
             )
             self.patch_embed3 = BinaryPatchEmbed(
-                14,
+                s3,
                 in_dim=config.hidden_size[2],
                 out_dim=config.hidden_size[3],
                 config=config,
