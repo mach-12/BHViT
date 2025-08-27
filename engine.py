@@ -14,7 +14,7 @@ from timm.data import Mixup
 from timm.utils import accuracy, ModelEma
 
 import utils
-
+CLASSES_TARGET = 3
 
 def _hard_targets(targets: torch.Tensor) -> torch.Tensor:
     # works for both hard (N,) and soft/one-hot (N, C) labels (e.g., mixup)
@@ -147,10 +147,10 @@ def train_one_epoch_L1(
         with torch.amp.autocast("cuda"):
             outputs = model(samples)
             logits = outputs.logits if hasattr(outputs, "logits") else outputs
-            if logits.size(-1) != args.nb_classes:
+            if logits.size(-1) != CLASSES_TARGET:
                 raise RuntimeError(
                     f"Model head out_features={logits.size(-1)} "
-                    f"but nb_classes={args.nb_classes}. "
+                    f"but nb_classes={CLASSES_TARGET}. "
                     f"Fix get_model(...)."
                 )
 
@@ -334,10 +334,10 @@ def train_one_epoch(
             logits = outputs.logits if hasattr(outputs, "logits") else outputs
 
             # 4) Sanity check head size
-            if logits.size(-1) != args.nb_classes:
+            if logits.size(-1) != CLASSES_TARGET:
                 raise RuntimeError(
                     f"Model head out_features={logits.size(-1)} "
-                    f"but nb_classes={args.nb_classes}. "
+                    f"but nb_classes={CLASSES_TARGET}. "
                     f"Fix get_model(...)."
                 )
 
