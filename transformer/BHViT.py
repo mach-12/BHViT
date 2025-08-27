@@ -1489,7 +1489,8 @@ class BHViTForImageClassification(nn.Module):
 
         sequence_output = outputs[0]
 
-        logits = self.classifier(torch.mean(sequence_output, dim=1))
+        pooled = self.pool(sequence_output)  # [B, C], mean/attn/top-k as per config
+        logits = self.classifier(pooled)
 
         if not return_dict:
             output = (logits,) + outputs[1:]
