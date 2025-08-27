@@ -1,0 +1,29 @@
+{
+  "architectures": ["ViTForImageClassification"],
+  "model_type": "vit",
+  "image_size": 224,
+  "num_channels": 3,
+
+  "hidden_size": [64, 128, 256, 512],
+  "depths": [3, 4, 8, 4],
+  "num_attention_heads": [1, 1, 4, 8],
+  "intermediate_size": [512, 1024, 1024, 2048],
+  "encoder_stride": 16,
+  "layer_norm_eps": 1e-5,
+  "hidden_act": "gelu",
+  "drop_path": 0.1,
+  "attention_probs_dropout_prob": 0.0,
+  "hidden_dropout_prob": 0.0,
+  "qkv_bias": true,
+  "patch_size": 4,
+  "transformers_version": "4.20.1",
+
+  "token_num": [3136, 784, 196, 49],
+
+  "stain_instance_norm": true,
+  "coord_conv": true,
+  "attn_window": 7,
+  "use_sinusoidal_pe": false,
+  "token_pool": "attn",
+  "topk_ratio": 0.15
+}
