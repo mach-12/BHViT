@@ -1,4 +1,7 @@
-# aggregate_kfold_results_bhvit.py
+# python aggregate_kfold_results_bhvit.py   --data-root ../../cervical_kfolds   --fold-runs ../outputs/bhvit_0 ../outputs/bhvit_1 ../outputs/bhvit_2 ../outputs/bhvit_3 ../outputs/bhvit_4   --out-dir ../outputs/bhvit_kfold_agg   --device cuda   --batch-size 128 --num-workers 8   --use-ema-if-available
+# python aggregate_kfold_results_bhvit.py   --data-root ../../cervical_kfolds   --fold-runs ../outputs/bhvitmed_0 ../outputs/bhvitmed_1 ../outputs/bhvitmed_2 ../outputs/bhvitmed_3 ../outputs/bhvitmed_4   --out-dir ../outputs/bhvitmed_kfold_agg   --device cuda   --batch-size 128 --num-workers 8   --use-ema-if-available
+
+
 #!/usr/bin/env python3
 import argparse, json, os, re
 from pathlib import Path
@@ -27,7 +30,7 @@ def parse_args():
         "--fold-runs",
         nargs="+",
         required=True,
-        help="List of 5 run dirs each containing best.pth (e.g., ../outputs/bhvittiny_0 ... _4)",
+        help="List of 5 run dirs each containing checkpoint.pth (e.g., ../outputs/bhvittiny_0 ... _4)",
     )
     ap.add_argument(
         "--out-dir",
@@ -238,7 +241,7 @@ def main():
 
     for idx, (run_dir, fold_name) in enumerate(mappings):
         fold_root = data_root / fold_name
-        best_path = run_dir / "best.pth"
+        best_path = run_dir / "checkpoint.pth"
         if not best_path.exists():
             raise SystemExit(f"[error] checkpoint missing: {best_path}")
         if not fold_root.exists():
