@@ -59,6 +59,7 @@ class ViTAttentionPlots:
         grid_cols: int = 3,
     ):
         self.out_dir = Path(out_dir)
+        self.out_dir.mkdir(parents=True, exist_ok=True)
         self.viz_dir = self.out_dir / "interpret"
         self.viz_dir.mkdir(parents=True, exist_ok=True)
         self.overlay_alpha = overlay_alpha
